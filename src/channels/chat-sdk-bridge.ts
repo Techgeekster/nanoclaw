@@ -1035,7 +1035,7 @@ function startLocalWebhookServer(
   });
 }
 
-async function handleForwardedEvent(
+export async function handleForwardedEvent(
   body: string,
   adapter: GatewayAdapter,
   setupConfig: ChannelSetup,
@@ -1053,7 +1053,15 @@ async function handleForwardedEvent(
     const interaction = event.data;
     // type 3 = MessageComponent (button/select)
     if (interaction.type === 3) {
-      const customId = (interaction.data as Record<string, unknown>)?.custom_id as string;
+      const rawCustomId = (interaction.data as Record<string, unknown>)?.custom_id as string;
+      // The Discord adapter encodes the component custom_id as
+      // `${button.id}\n${button.value}` (see encodeDiscordCustomId in
+      // @chat-adapter/discord). Split the value suffix off before parsing so
+      // the button id — `ncq:<questionId>:<index>` — is read cleanly. Without
+      // this, `tail` picks up the trailing "\n<index>" and no option resolves.
+      const newlineIdx = rawCustomId?.indexOf('\n') ?? -1;
+      const customId = newlineIdx === -1 ? rawCustomId : rawCustomId.slice(0, newlineIdx);
+      const encodedValue = newlineIdx === -1 ? undefined : rawCustomId.slice(newlineIdx + 1);
       // In guilds the clicker is at interaction.member.user; in DMs it's interaction.user directly.
       const user =
         ((interaction.member as Record<string, unknown>)?.user as Record<string, string> | undefined) ??
@@ -1079,7 +1087,7 @@ async function handleForwardedEvent(
       const render = questionId ? await resolveQuestionRender(questionId) : undefined;
       // Discord custom_id mirrors the new index-based encoding (see Button
       // construction). Decode back to the real option value for downstream.
-      const selectedOption = resolveSelectedOption(render, tail, tail);
+      const selectedOption = resolveSelectedOption(render, encodedValue ?? tail, tail);
       const cardTitle = render?.title ?? ((originalEmbeds[0]?.title as string) || '❓ Question');
       const matchedOpt = render?.options.find((o) => o.value === selectedOption);
       const selectedLabel = matchedOpt?.selectedLabel ?? selectedOption ?? customId;
