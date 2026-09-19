@@ -235,4 +235,41 @@ export const addReaction: McpToolDefinition = {
   },
 };
 
-registerTools([sendMessage, sendFile, editMessage, addReaction]);
+export const renameThread: McpToolDefinition = {
+  tool: {
+    name: 'rename_thread',
+    description:
+      "Rename the platform thread this conversation is happening in (e.g. once you understand what it's about). Currently only takes effect on Discord threads; a no-op elsewhere.",
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string', description: 'New thread name (Discord caps this at 100 characters).' },
+      },
+      required: ['name'],
+    },
+  },
+  async handler(args) {
+    const name = (args.name as string)?.trim();
+    if (!name) return err('name is required');
+
+    const route = getCurrentReplyRoute();
+    if (!route?.channelType || !route.platformId || !route.threadId) {
+      return err('Not in a threaded conversation — nothing to rename.');
+    }
+
+    const id = generateId();
+    await writeMessageOut({
+      id,
+      kind: 'chat',
+      platform_id: route.platformId,
+      channel_type: route.channelType,
+      thread_id: route.threadId,
+      content: JSON.stringify({ operation: 'rename_thread', name: name.slice(0, 100) }),
+    });
+
+    log(`rename_thread: ${route.threadId} → "${name}"`);
+    return ok(`Thread rename queued: "${name}"`);
+  },
+};
+
+registerTools([sendMessage, sendFile, editMessage, addReaction, renameThread]);

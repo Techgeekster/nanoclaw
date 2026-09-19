@@ -392,6 +392,78 @@ describe('createChatSdkBridge.deliver — ask_question cards (button styles)', (
   });
 });
 
+describe('createChatSdkBridge.deliver — rename_thread', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('PATCHes the Discord thread channel via the raw REST API, not the vendor adapter', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '' });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const bridge = createChatSdkBridge({
+      adapter: stubAdapter({
+        name: 'discord',
+        decodeThreadId: (id: string) => ({ guildId: 'g1', channelId: 'c1', threadId: id.split(':')[3] }),
+      }),
+      botToken: 'tok-123',
+      supportsThreads: true,
+    });
+
+    await bridge.deliver('discord:g1:c1', 'discord:g1:c1:t1', {
+      kind: 'chat-sdk',
+      content: { operation: 'rename_thread', name: 'Vet appointment scheduling' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://discord.com/api/v10/channels/t1');
+    expect(init.method).toBe('PATCH');
+    expect(init.headers).toMatchObject({ Authorization: 'Bot tok-123' });
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'Vet appointment scheduling' });
+  });
+
+  it('is a no-op on a non-Discord bridge — no fetch call, no throw', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const bridge = createChatSdkBridge({
+      adapter: stubAdapter({ name: 'slack' }),
+      botToken: 'tok-123',
+      supportsThreads: true,
+    });
+
+    await bridge.deliver('slack:C1', null, {
+      kind: 'chat-sdk',
+      content: { operation: 'rename_thread', name: 'Vet appointment scheduling' },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the target thread id has no actual Discord thread component', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const bridge = createChatSdkBridge({
+      adapter: stubAdapter({
+        name: 'discord',
+        decodeThreadId: () => ({ guildId: 'g1', channelId: 'c1', threadId: undefined }),
+      }),
+      botToken: 'tok-123',
+      supportsThreads: true,
+    });
+
+    // Plain channel id, not a thread — deliver() falls back to platformId as tid.
+    await bridge.deliver('discord:g1:c1', null, {
+      kind: 'chat-sdk',
+      content: { operation: 'rename_thread', name: 'Vet appointment scheduling' },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('createChatSdkBridge.deliver — display cards (send_card)', () => {
   // The send_card MCP tool writes outbound rows with `{ type: 'card', card, fallbackText }`.
   // Before this branch existed the bridge silently dropped them: cards have no

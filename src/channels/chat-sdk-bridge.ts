@@ -457,6 +457,29 @@ export function appendRawText(
   serialized.text = text ? `${text}\n\n${extra}` : extra;
 }
 
+/**
+ * Discord-only: rename a thread via the raw REST API. The vendor
+ * @chat-adapter/discord package hardcodes a "Thread <timestamp>" name at
+ * creation time with no override hook (see its createDiscordThread), so this
+ * bypasses it — Discord threads are channel objects, and `PATCH
+ * /channels/{id}` with `name` renames one exactly like any other channel.
+ * decodeThreadId's `threadId` field is absent for a plain (non-thread)
+ * channel id, which this treats as nothing to rename rather than an error.
+ */
+async function renameDiscordThread(adapter: Adapter, botToken: string, tid: string, name: string): Promise<void> {
+  const decode = (adapter as unknown as { decodeThreadId?: (id: string) => { threadId?: string } }).decodeThreadId;
+  const discordThreadId = decode?.(tid)?.threadId;
+  if (!discordThreadId) return;
+  const res = await fetch(`https://discord.com/api/v10/channels/${discordThreadId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bot ${botToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    log.warn('Discord thread rename failed', { discordThreadId, status: res.status, body: await res.text() });
+  }
+}
+
 export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter {
   const { adapter } = config;
   // The instance name becomes a webhook route segment (the route regex is
@@ -830,6 +853,17 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
 
       if (content.operation === 'reaction' && content.messageId && content.emoji) {
         await adapter.addReaction(tid, content.messageId as string, content.emoji as string);
+        return;
+      }
+
+      if (content.operation === 'rename_thread' && typeof content.name === 'string') {
+        if (adapter.name === 'discord' && config.botToken) {
+          await renameDiscordThread(adapter, config.botToken, tid, content.name);
+        } else {
+          log.debug('Thread rename requested on a platform/bridge without support — ignored', {
+            adapter: adapter.name,
+          });
+        }
         return;
       }
 
