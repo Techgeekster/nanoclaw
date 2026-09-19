@@ -1,11 +1,20 @@
 /**
  * Discord channel adapter (v2) — uses Chat SDK bridge.
  * Self-registers on import.
+ *
+ * Additional bot identities: set DISCORD_INSTANCES=<name>[,<name>…] plus a
+ * per-instance credential set (DISCORD_BOT_TOKEN_<NAME> /
+ * DISCORD_APPLICATION_ID_<NAME> / DISCORD_PUBLIC_KEY_<NAME>; name uppercased,
+ * dashes → underscores). Each name registers under the `discord-<name>`
+ * instance key through the same createDiscordBridge factory as the default
+ * app — no mirrored construction. channelType stays 'discord' either way, so
+ * user ids, formatting, container config, and the wiring-defaults declaration
+ * are shared across instances.
  */
 import { createDiscordAdapter } from '@chat-adapter/discord';
 
 import { readEnvFile } from '../env.js';
-import type { ChannelDefaults } from './adapter.js';
+import type { ChannelAdapter, ChannelDefaults } from './adapter.js';
 import { createChatSdkBridge, type ReplyContext } from './chat-sdk-bridge.js';
 import { registerChannelAdapter } from './channel-registry.js';
 
@@ -72,27 +81,96 @@ function unwrapForwards(adapter: ReturnType<typeof createDiscordAdapter>): void 
   };
 }
 
+/** Construction knobs for one Discord bot identity. */
+export interface DiscordBridgeOptions {
+  /**
+   * Uppercased/underscored instance suffix appended to each credential env
+   * key after an underscore — 'HA' reads DISCORD_BOT_TOKEN_HA /
+   * DISCORD_APPLICATION_ID_HA / DISCORD_PUBLIC_KEY_HA. Omit (or pass '') for
+   * the default app's unsuffixed keys.
+   */
+  envKeySuffix?: string;
+  /**
+   * Registry/bridge instance key (e.g. 'discord-ha'). Omit for the default
+   * instance, keyed by channelType. channelType stays 'discord' either way —
+   * instance is a host-side routing key only, so user ids, formatting,
+   * container config, and the wiring-defaults declaration are shared with the
+   * default Discord app.
+   */
+  instanceKey?: string;
+}
+
+/**
+ * Build one Discord bot identity's bridge from its credential set. The
+ * default app is the zero-suffix call (used by the registration below); named
+ * instances pass a suffix + instance key and get the exact same construction.
+ * Returns null when the bot token is missing so the registry surfaces its
+ * normal "credentials missing, skipping" warning.
+ */
+export function createDiscordBridge(options: DiscordBridgeOptions = {}): ChannelAdapter | null {
+  const suffix = options.envKeySuffix ? `_${options.envKeySuffix}` : '';
+  const keys = {
+    botToken: `DISCORD_BOT_TOKEN${suffix}`,
+    publicKey: `DISCORD_PUBLIC_KEY${suffix}`,
+    applicationId: `DISCORD_APPLICATION_ID${suffix}`,
+  };
+  const env = readEnvFile([keys.botToken, keys.publicKey, keys.applicationId]);
+  const botToken = env[keys.botToken];
+  if (!botToken) return null;
+  const discordAdapter = createDiscordAdapter({
+    botToken,
+    publicKey: env[keys.publicKey],
+    applicationId: env[keys.applicationId],
+  });
+  unwrapForwards(discordAdapter);
+  return createChatSdkBridge({
+    adapter: discordAdapter,
+    instance: options.instanceKey, // undefined ⇒ default instance (keyed by channelType)
+    concurrency: 'concurrent',
+    botToken,
+    extractReplyContext,
+    supportsThreads: true,
+    defaults: DISCORD_DEFAULTS,
+    // Discord rejects messages over 2000 chars; without this the bridge
+    // would let long agent replies fail instead of splitting them.
+    maxTextLength: 2000,
+  });
+}
+
+/** Env-key suffix for a named instance: uppercased, dashes → underscores. */
+export function instanceEnvKeySuffix(name: string): string {
+  return name.toUpperCase().replace(/-/g, '_');
+}
+
+/**
+ * Build one named instance's bridge from its per-instance credential set,
+ * through the shared factory. Returns null when the bot token is missing so
+ * the registry surfaces its "credentials missing, skipping" warning.
+ * Exported so a test can drive the real factory against a credential set.
+ */
+export function discordInstanceBridgeFactory(name: string): ChannelAdapter | null {
+  return createDiscordBridge({
+    envKeySuffix: instanceEnvKeySuffix(name),
+    instanceKey: `discord-${name}`,
+  });
+}
+
 registerChannelAdapter('discord', {
-  factory: () => {
-    const env = readEnvFile(['DISCORD_BOT_TOKEN', 'DISCORD_PUBLIC_KEY', 'DISCORD_APPLICATION_ID']);
-    if (!env.DISCORD_BOT_TOKEN) return null;
-    const discordAdapter = createDiscordAdapter({
-      botToken: env.DISCORD_BOT_TOKEN,
-      publicKey: env.DISCORD_PUBLIC_KEY,
-      applicationId: env.DISCORD_APPLICATION_ID,
-    });
-    unwrapForwards(discordAdapter);
-    return createChatSdkBridge({
-      adapter: discordAdapter,
-      concurrency: 'concurrent',
-      botToken: env.DISCORD_BOT_TOKEN,
-      extractReplyContext,
-      supportsThreads: true,
-      defaults: DISCORD_DEFAULTS,
-      // Discord rejects messages over 2000 chars; without this the bridge
-      // would let long agent replies fail instead of splitting them.
-      maxTextLength: 2000,
-    });
-  },
+  factory: () => createDiscordBridge(),
   defaults: DISCORD_DEFAULTS,
 });
+
+// Named instances — registration is unconditional for every listed name so a
+// missing credential set surfaces as the registry's "credentials missing,
+// skipping" warning at boot rather than a silently absent bot. Every
+// registration carries the same DISCORD_DEFAULTS declaration as the default
+// app, so offline creation paths (setup, ncl) resolve declared wiring defaults
+// for named instances too.
+for (const raw of (readEnvFile(['DISCORD_INSTANCES']).DISCORD_INSTANCES ?? '').split(',')) {
+  const name = raw.trim();
+  if (!name) continue;
+  registerChannelAdapter(`discord-${name}`, {
+    factory: () => discordInstanceBridgeFactory(name),
+    defaults: DISCORD_DEFAULTS,
+  });
+}
