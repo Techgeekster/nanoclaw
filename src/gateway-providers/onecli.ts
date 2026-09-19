@@ -15,6 +15,10 @@
  * refuses the spawn: nothing gets to ride raw argv around the spec again. A
  * typed SDK config surface is the successor that deletes this parser.
  */
+import { lstatSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { OneCLI } from '@onecli-sh/sdk';
 
 import { ONECLI_API_KEY, ONECLI_URL } from '../config.js';
@@ -29,6 +33,36 @@ import {
 } from './gateway-provider-registry.js';
 
 const onecli = new OneCLI({ url: ONECLI_URL, apiKey: ONECLI_API_KEY });
+
+/**
+ * The SDK writes its CA bundle to these two fixed, shared paths in the OS
+ * tmpdir via plain `fs.writeFileSync` (`@onecli-sh/sdk` `src/container/ca.ts`)
+ * and then bind-mounts them into the spawned container. If a `docker run -v`
+ * ever executes while the container runtime is restarting or otherwise
+ * unhealthy — something this host's docker/WSL setup does hit from time to
+ * time — dockerd can auto-vivify a momentarily-missing bind-mount source as a
+ * root-owned *directory* instead of a file. Once that happens, the SDK's
+ * `writeFileSync` throws EISDIR forever: it has no way to tell "this should
+ * be a file" and clean up after itself, so every future spawn for every
+ * agent group fails silently and host-sweep just retries it forever. Clear
+ * any stray directory here, before every spawn, so that vendor footgun can
+ * never wedge the whole install again.
+ */
+const ONECLI_TMP_CA_PATHS = [join(tmpdir(), 'onecli-proxy-ca.pem'), join(tmpdir(), 'onecli-combined-ca.pem')];
+
+/** Exported for its test — the failure mode it guards against is otherwise unreproducible without a real docker/tmpdir race. */
+export function clearStrayOnecliCaDirectories(): void {
+  for (const path of ONECLI_TMP_CA_PATHS) {
+    try {
+      if (!lstatSync(path).isDirectory()) continue;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw err;
+    }
+    rmSync(path, { recursive: true, force: true });
+    log.warn('Cleared stray OneCLI CA directory that would have blocked every container spawn', { path });
+  }
+}
 
 /** Argv → typed contribution. Exported for its tests; the grammar is closed. */
 export function contributionFromArgs(args: readonly string[], groupScope: string): GatewayContribution {
@@ -89,6 +123,7 @@ registerGatewayProvider('onecli', () => ({
     // OneCLI agent identifier is always the agent group id — stable across
     // sessions and reversible via getAgentGroup() for approval routing.
     await onecli.ensureAgent({ name: groupName, identifier: key.agentGroupId });
+    clearStrayOnecliCaDirectories();
     const args: string[] = [];
     const applied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: key.agentGroupId });
     if (!applied) {
