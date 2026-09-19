@@ -43,6 +43,14 @@ async function dispatchResponse(payload: ResponsePayload): Promise<void> {
 // Channel skills uncomment lines in channels/index.ts to enable them.
 import './channels/index.js';
 
+// Local companion module (not skill-managed — see its own header) for extra
+// Discord bot identities. Deliberately imported here rather than from
+// channels/index.ts: that barrel is scanned by detectInstalledSkills()
+// (scripts/update-skills.ts), which would mistake a bare import there for an
+// uninstalled `add-discord-instances` skill and fail every future skill
+// refresh.
+import './channels/discord-instances.js';
+
 // Modules barrel — imports registration modules, including the singular
 // mailbox composition slot. Imported for side effects.
 import './modules/index.js';
