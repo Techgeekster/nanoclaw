@@ -263,3 +263,53 @@ export async function requestAddMcpServerHold(content: Record<string, unknown>, 
     question,
   });
 }
+
+export async function validateUpdateConfig(content: Record<string, unknown>, session: Session): Promise<boolean> {
+  const agentGroup = await getAgentGroup(session.agent_group_id);
+  if (!agentGroup) {
+    await notifyAgent(session, 'update_config failed: agent group not found.');
+    return false;
+  }
+
+  const model = typeof content.model === 'string' ? content.model.trim() : '';
+  const provider = typeof content.provider === 'string' ? content.provider.trim() : '';
+
+  if (!model && !provider) {
+    await notifyAgent(session, 'update_config failed: at least one of model or provider must be specified.');
+    return false;
+  }
+
+  const MODEL_RE = /^[a-z0-9][\w-]*[a-z0-9]$/;
+  const PROVIDER_RE = /^[a-z0-9][\w-]*[a-z0-9]$/;
+
+  if (model && !MODEL_RE.test(model)) {
+    await notifyAgent(session, `update_config failed: invalid model format "${model}".`);
+    log.warn('update_config: invalid model rejected', { model });
+    return false;
+  }
+  if (provider && !PROVIDER_RE.test(provider)) {
+    await notifyAgent(session, `update_config failed: invalid provider format "${provider}".`);
+    log.warn('update_config: invalid provider rejected', { provider });
+    return false;
+  }
+  return true;
+}
+
+export async function requestUpdateConfigHold(content: Record<string, unknown>, session: Session): Promise<void> {
+  const agentGroup = await getAgentGroup(session.agent_group_id);
+  if (!agentGroup) return;
+
+  const model = (content.model as string) || '';
+  const provider = (content.provider as string) || '';
+  const reason = (content.reason as string) || '';
+
+  const changes = [model && `model: ${model}`, provider && `provider: ${provider}`].filter(Boolean).join(', ');
+  await requestApproval({
+    session,
+    agentName: agentGroup.name,
+    action: 'update_config',
+    payload: { ...(model && { model }), ...(provider && { provider }), reason },
+    title: 'Update Configuration Request',
+    question: `Agent "${agentGroup.name}" is requesting configuration change:\n${changes}${reason ? `\nReason: ${reason}` : ''}`,
+  });
+}

@@ -21,7 +21,11 @@ import { buildAgentGroupImage, killContainer } from '../../container-runner.js';
 import { requestWake } from '../../request-wake.js';
 import { getAgentGroup } from '../../db/agent-groups.js';
 import { setStopIntent, shadowWrite } from '../../db/coordination.js';
-import { getContainerConfig, updateContainerConfigJson } from '../../db/container-configs.js';
+import {
+  getContainerConfig,
+  updateContainerConfigJson,
+  updateContainerConfigScalars,
+} from '../../db/container-configs.js';
 import { getSession } from '../../db/sessions.js';
 import { log } from '../../log.js';
 import { writeSessionMessage } from '../../session-manager.js';
@@ -168,4 +172,50 @@ export async function applyAddMcpServer(payload: Record<string, unknown>, sessio
     void wakeSessionById(session.id);
   });
   log.info('MCP server add approved', { agentGroupId: session.agent_group_id });
+}
+
+export async function applyUpdateConfig(payload: Record<string, unknown>, session: Session): Promise<void> {
+  const agentGroup = await getAgentGroup(session.agent_group_id);
+  if (!agentGroup) {
+    await notifyAgent(session, 'update_config approved but agent group missing.');
+    return;
+  }
+
+  const configRow = await getContainerConfig(agentGroup.id);
+  if (!configRow) {
+    await notifyAgent(session, 'update_config approved but container config missing.');
+    return;
+  }
+
+  const model = typeof payload.model === 'string' ? payload.model.trim() : '';
+  const provider = typeof payload.provider === 'string' ? payload.provider.trim() : '';
+
+  const updates: Record<string, string> = {};
+  if (model) updates.model = model;
+  if (provider) updates.provider = provider;
+
+  if (Object.keys(updates).length > 0) {
+    await updateContainerConfigScalars(agentGroup.id, updates as Parameters<typeof updateContainerConfigScalars>[1]);
+  }
+
+  const changes = [model && `model: ${model}`, provider && `provider: ${provider}`].filter(Boolean).join(', ');
+  await writeSessionMessage(session.agent_group_id, session.id, {
+    id: `appr-note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    kind: 'chat',
+    timestamp: new Date().toISOString(),
+    platformId: session.agent_group_id,
+    channelType: 'agent',
+    threadId: null,
+    content: JSON.stringify({
+      text: `Configuration updated (${changes}). Container restarting with new settings.`,
+      sender: 'system',
+      senderId: 'system',
+    }),
+    onWake: true,
+  });
+  await shadowRespawnIntent(session.id);
+  killContainer(session.id, 'config updated', () => {
+    void wakeSessionById(session.id);
+  });
+  log.info('Config update approved', { agentGroupId: session.agent_group_id, model, provider });
 }

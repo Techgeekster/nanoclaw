@@ -211,4 +211,65 @@ export const addMcpServer: McpToolDefinition = {
   },
 };
 
-registerTools([installPackages, addMcpServer]);
+export const updateConfig: McpToolDefinition = {
+  tool: {
+    name: 'update_config',
+    description:
+      'Update YOUR per-agent runtime configuration (model, provider). Requires admin approval; fire-and-forget. On approval, the container is restarted automatically.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        model: {
+          type: 'string',
+          description:
+            'Claude model to use (e.g. "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001", "claude-fable-5")',
+        },
+        provider: {
+          type: 'string',
+          description: 'Provider name (e.g. "claude", "opencode")',
+        },
+        reason: {
+          type: 'string',
+          description: 'Why this configuration change is needed',
+        },
+      },
+    },
+  },
+  async handler(args) {
+    const model = typeof args.model === 'string' ? args.model.trim() : '';
+    const provider = typeof args.provider === 'string' ? args.provider.trim() : '';
+    const reason = (args.reason as string) || '';
+
+    if (!model && !provider) {
+      return err('At least one of model or provider must be specified');
+    }
+
+    // Basic validation of model format (should be like claude-xxx or provider-specific)
+    if (model && !/^[a-z0-9][\w-]*[a-z0-9]$/.test(model)) {
+      return err(`Invalid model format: "${model}". Use lowercase letters, digits, and hyphens.`);
+    }
+
+    // Basic validation of provider format
+    if (provider && !/^[a-z0-9][\w-]*[a-z0-9]$/.test(provider)) {
+      return err(`Invalid provider format: "${provider}". Use lowercase letters, digits, and hyphens.`);
+    }
+
+    const requestId = generateId();
+    await writeMessageOut({
+      id: requestId,
+      kind: 'system',
+      content: JSON.stringify({
+        action: 'update_config',
+        ...(model && { model }),
+        ...(provider && { provider }),
+        reason,
+      }),
+    });
+
+    const what = [model && `model to ${model}`, provider && `provider to ${provider}`].filter(Boolean).join(', ');
+    log(`update_config: ${requestId} → ${what}`);
+    return ok(`Configuration update requested (${what}). You will be notified when admin approves or rejects.`);
+  },
+};
+
+registerTools([installPackages, addMcpServer, updateConfig]);

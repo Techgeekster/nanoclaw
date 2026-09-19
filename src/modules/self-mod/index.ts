@@ -26,13 +26,15 @@
  */
 import { reenterGuardedDeliveryAction, registerDeliveryAction } from '../../delivery.js';
 import { notifyAgent, registerApprovalHandler } from '../approvals/index.js';
-import { applyAddMcpServer, applyInstallPackages } from './apply.js';
-import { selfModAddMcpServer, selfModInstallPackages } from './guard.js';
+import { applyAddMcpServer, applyInstallPackages, applyUpdateConfig } from './apply.js';
+import { selfModAddMcpServer, selfModInstallPackages, selfModUpdateConfig } from './guard.js';
 import {
   requestAddMcpServerHold,
   requestInstallPackagesHold,
+  requestUpdateConfigHold,
   validateAddMcpServer,
   validateInstallPackages,
+  validateUpdateConfig,
 } from './request.js';
 
 registerDeliveryAction('install_packages', applyInstallPackages, {
@@ -47,6 +49,13 @@ registerDeliveryAction('add_mcp_server', applyAddMcpServer, {
   requestHold: requestAddMcpServerHold,
   onDeny: (_content, session, reason) => notifyAgent(session, `add_mcp_server denied: ${reason}`),
 });
+registerDeliveryAction('update_config', applyUpdateConfig, {
+  guardAction: selfModUpdateConfig,
+  precheck: validateUpdateConfig,
+  requestHold: requestUpdateConfigHold,
+  onDeny: (_content, session, reason) => notifyAgent(session, `update_config denied: ${reason}`),
+});
 
 registerApprovalHandler('install_packages', reenterGuardedDeliveryAction('install_packages'));
 registerApprovalHandler('add_mcp_server', reenterGuardedDeliveryAction('add_mcp_server'));
+registerApprovalHandler('update_config', reenterGuardedDeliveryAction('update_config'));

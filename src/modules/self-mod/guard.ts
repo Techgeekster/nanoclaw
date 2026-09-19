@@ -53,3 +53,9 @@ export const selfModAddMcpServer = defineGuardedAction({
   grantActionName: 'add_mcp_server',
   decide: selfModDecide('add_mcp_server'),
 });
+
+export const selfModUpdateConfig = defineGuardedAction({
+  action: 'self_mod.update_config',
+  grantActionName: 'update_config',
+  decide: selfModDecide('update_config'),
+});

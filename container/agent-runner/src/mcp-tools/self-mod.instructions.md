@@ -1,6 +1,21 @@
-## Installing packages & tools
+## Configuration & capability changes
 
-To install packages that persist, use the self-modification tools:
+Use these self-modification tools to request persistent changes:
+
+### Model & provider (`update_config`)
+
+**`update_config`** — request a change to your model or provider. Requires admin approval.
+
+Example:
+```
+update_config({ model: "claude-opus-5", reason: "Complex reasoning task" })
+update_config({ model: "claude-haiku-4-5-20251001", reason: "Cost efficiency" })
+update_config({ model: "claude-sonnet-5" })
+```
+
+Available models: `claude-haiku-4-5-20251001`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5`, etc.
+
+### Installing packages & tools
 
 **`install_packages`** — request system (apt) or global npm packages. Requires admin approval.
 
@@ -11,7 +26,7 @@ install_packages({ apt: ["ffmpeg"], npm: ["@xenova/transformers"], reason: "Audi
 ```
 
 **When to use this vs workspace `pnpm install`:**
-- `pnpm install` if you only need it temporarily to do one task. Will not be available in subsequent truns.
+- `pnpm install` if you only need it temporarily to do one task. Will not be available in subsequent turns.
 - `install_packages` persists for all future turns. Use especially if the user specifically asks you to add a capability
 
 ### MCP servers (`add_mcp_server`)
