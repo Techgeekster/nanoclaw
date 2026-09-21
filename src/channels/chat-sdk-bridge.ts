@@ -21,6 +21,8 @@ import {
   type Message as ChatMessage,
 } from 'chat';
 import { log } from '../log.js';
+import { registerSessionCreatedHook } from '../router.js';
+import { writeSessionMessage } from '../session-manager.js';
 import { SqliteStateAdapter } from '../state-sqlite.js';
 import { registerWebhookAdapter } from '../webhook-server.js';
 import { normalizeOptions, type NormalizedOption } from './ask-question.js';
@@ -1184,3 +1186,36 @@ export async function handleForwardedEvent(
   });
   await adapter.handleWebhook(fakeRequest, {});
 }
+
+/**
+ * A brand-new Discord thread session is, in the overwhelming common case,
+ * a thread the vendor adapter just auto-created for a mention — carrying
+ * its hardcoded default "Thread <timestamp>" name (see renameDiscordThread's
+ * comment above). The agent has no in-context signal that a thread is new
+ * versus an old, already-sensibly-named one it's simply seeing for the
+ * first time (e.g. right after a wiring is added to a channel with
+ * pre-existing threads) — relying on it to notice and remember to rename
+ * unprompted is unreliable. This reminder is deterministic instead: fires
+ * once, right when the session is created, alongside the triggering
+ * message. Idempotent risk is low (renaming an already-good name is
+ * harmless) and rare (only the just-wired-channel edge case above).
+ */
+registerSessionCreatedHook(async (event) => {
+  if (event.mg.channel_type !== 'discord' || !event.threadId) return;
+  await writeSessionMessage(event.session.agent_group_id, event.session.id, {
+    id: `thread-name-reminder-${event.session.id}`,
+    kind: 'chat',
+    timestamp: new Date().toISOString(),
+    platformId: event.platformId,
+    channelType: event.mg.channel_type,
+    threadId: event.threadId,
+    content: JSON.stringify({
+      text:
+        'System note: this looks like a newly created Discord thread. Once you’ve ' +
+        'replied, call rename_thread with a short, specific name for it.',
+      sender: 'system',
+      senderId: 'system',
+    }),
+    trigger: true,
+  });
+});
