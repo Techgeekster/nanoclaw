@@ -54,14 +54,14 @@ vi.mock('./delivery.js', () => ({
 }));
 vi.mock('./host-sweep.js', () => ({ startHostSweep: vi.fn(), stopHostSweep: vi.fn() }));
 vi.mock('./host-lifecycle.js', () => ({ startHostModules: vi.fn(), stopHostModules: vi.fn() }));
-vi.mock('./router.js', () => ({ routeInbound: state.routeInbound }));
+vi.mock('./router.js', () => ({ routeInbound: state.routeInbound, registerSessionCreatedHook: vi.fn() }));
 vi.mock('./response-registry.js', () => ({ getResponseHandlers: () => [] }));
 vi.mock('./channels/index.js', () => ({}));
 vi.mock('./modules/index.js', () => ({}));
 vi.mock('./cli/commands/index.js', () => ({}));
 vi.mock('./cli/delivery-action.js', () => ({}));
 vi.mock('./cli/socket-server.js', () => ({ startCliServer: state.ready, stopCliServer: vi.fn() }));
-vi.mock('./log.js', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), fatal: vi.fn() } }));
+vi.mock('./log.js', () => ({ log: { debug: vi.fn(), info: vi.fn(), error: vi.fn(), warn: vi.fn(), fatal: vi.fn() } }));
 vi.mock('./channels/channel-registry.js', () => ({
   createChannelDeliveryAdapter: () => ({}),
   teardownChannelAdapters: vi.fn(),

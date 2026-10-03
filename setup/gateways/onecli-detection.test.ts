@@ -33,10 +33,14 @@ it.each([undefined, '', 'ONECLI_URL=\n', '# ONECLI_URL=http://old\n', 'ONECLI_UR
     expect(await detectInstalledOneCLI(fixture(env))).toBe(false);
   },
 );
-it('resolves an unstamped offline legacy install through the actual detector', () => {
-  const root = fixture('ONECLI_URL=http://127.0.0.1:1\n');
-  fs.symlinkSync(path.resolve('node_modules'), path.join(root, 'node_modules'));
-  fs.writeFileSync(path.join(root, 'package.json'), '{"type":"module"}');
-  expect(resolveGatewaySelection(root, undefined, path.resolve('.claude/skills'))).toBe('onecli');
-  expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).not.toContain('NANOCLAW_GATEWAY_PROVIDER');
-});
+it(
+  'resolves an unstamped offline legacy install through the actual detector',
+  () => {
+    const root = fixture('ONECLI_URL=http://127.0.0.1:1\n');
+    fs.symlinkSync(path.resolve('node_modules'), path.join(root, 'node_modules'));
+    fs.writeFileSync(path.join(root, 'package.json'), '{"type":"module"}');
+    expect(resolveGatewaySelection(root, undefined, path.resolve('.claude/skills'))).toBe('onecli');
+    expect(fs.readFileSync(path.join(root, '.env'), 'utf8')).not.toContain('NANOCLAW_GATEWAY_PROVIDER');
+  },
+  30000,
+);

@@ -66,7 +66,10 @@ describe('handleForwardedEvent — gateway button clicks', () => {
     // button.id = `ncq:<questionId>:0`, button.value = "0".
     await handleForwardedEvent(interactionBody(`ncq:${QUESTION_ID}:0\n0`), stubAdapter, setup);
 
-    expect(onAction).toHaveBeenCalledWith(QUESTION_ID, CONNECT_VALUE, '667781444113924146');
+    expect(onAction).toHaveBeenCalledWith(QUESTION_ID, CONNECT_VALUE, '667781444113924146', {
+      messageId: undefined,
+      platformId: undefined,
+    });
   });
 
   it('still resolves a plain custom_id with no value suffix', async () => {
@@ -79,6 +82,9 @@ describe('handleForwardedEvent — gateway button clicks', () => {
 
     await handleForwardedEvent(interactionBody(`ncq:${QUESTION_ID}:2`), stubAdapter, setup);
 
-    expect(onAction).toHaveBeenCalledWith(QUESTION_ID, 'reject', '667781444113924146');
+    expect(onAction).toHaveBeenCalledWith(QUESTION_ID, 'reject', '667781444113924146', {
+      messageId: undefined,
+      platformId: undefined,
+    });
   });
 });
