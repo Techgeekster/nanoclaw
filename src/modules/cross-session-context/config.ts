@@ -1,3 +1,5 @@
+import { readEnvFile } from '../../env.js';
+
 /**
  * Cross-session context caps.
  *
@@ -60,3 +62,15 @@ export const ECHO_TIMELINE_SURFACE = 'dm-timeline';
  *  per-thread too, so a new thread session is seeded with the channel's
  *  top-level timeline — same messaging group means the same audience. */
 export const ECHO_CHANNEL_TIMELINE_SURFACE = 'channel-timeline';
+
+/**
+ * Master switch. `NANOCLAW_CROSS_SESSION_ECHO=off` (process env, else `.env`)
+ * disables every echo fan and the wake-time backfill, so each thread's session
+ * sees only its own conversation. Default on. Read per call: it is a cheap
+ * `.env` parse on message paths that already do I/O, and it lets tests flip it.
+ */
+export function crossSessionEchoEnabled(): boolean {
+  const raw =
+    process.env.NANOCLAW_CROSS_SESSION_ECHO ?? readEnvFile(['NANOCLAW_CROSS_SESSION_ECHO']).NANOCLAW_CROSS_SESSION_ECHO;
+  return !['off', '0', 'false'].includes((raw ?? '').trim().toLowerCase());
+}

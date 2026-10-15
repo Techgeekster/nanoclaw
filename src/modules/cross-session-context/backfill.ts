@@ -31,6 +31,7 @@ import {
   ECHO_CONCURRENCY,
   ECHO_MAX_AGE_MS,
   ECHO_TIMELINE_SURFACE,
+  crossSessionEchoEnabled,
 } from './config.js';
 import { loadHotCandidates, selectEchoTargets, selectHotSessions, truncateEchoText } from './fan.js';
 import { mapConcurrent } from './parallel.js';
@@ -128,6 +129,7 @@ export async function backfillSession(
   options: BackfillOptions,
 ): Promise<void> {
   try {
+    if (!crossSessionEchoEnabled()) return;
     if (session.thread_id !== null && isTaskThread(session.thread_id)) return;
     const now = options.now ?? Date.now();
 

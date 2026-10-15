@@ -51,6 +51,7 @@ import {
   ECHO_TASK_SURFACE,
   ECHO_TEXT_MAX_CHARS,
   HOT_SESSION_LIMIT,
+  crossSessionEchoEnabled,
 } from './config.js';
 import { mapConcurrent } from './parallel.js';
 
@@ -319,6 +320,7 @@ export function fanInboundMessage(args: {
 
 async function fanInbound(args: Parameters<typeof fanInboundMessage>[0]): Promise<number> {
   try {
+    if (!crossSessionEchoEnabled()) return 0;
     const { session, mg } = args;
     if (!CHAT_KINDS.has(args.kind)) return 0;
     // Only real chat surfaces fan: a2a rows and echo rows never re-fan.
@@ -379,6 +381,7 @@ async function fanOutbound(
   agentGroup: AgentGroup,
 ): Promise<number> {
   try {
+    if (!crossSessionEchoEnabled()) return 0;
     if (msg.kind === 'system' || msg.kind === 'task_log') return 0;
     if (!msg.channel_type || !msg.platform_id) return 0;
     if (msg.channel_type === 'agent' || msg.channel_type === ECHO_CHANNEL_TYPE) return 0;

@@ -221,6 +221,27 @@ describe('selectHotSessions (bounded audience)', () => {
   });
 });
 
+describe('NANOCLAW_CROSS_SESSION_ECHO=off', () => {
+  afterEach(() => {
+    delete process.env.NANOCLAW_CROSS_SESSION_ECHO;
+  });
+
+  it('fans nothing inbound or outbound, so threads see only their own conversation', async () => {
+    process.env.NANOCLAW_CROSS_SESSION_ECHO = 'off';
+    const inbound = await fanInboundMessage({
+      session: SRC_DM,
+      mg: DM_MG,
+      messageId: 'msg-off:ag-1',
+      kind: 'chat',
+      channelType: 'slack',
+      content: chatContent('should not fan'),
+      timestamp: NOW,
+    });
+    expect(inbound).toBe(0);
+    expect(readEchoRows(DM_SIBLING.id)).toHaveLength(0);
+  });
+});
+
 describe('fanInboundMessage', () => {
   it('fans a DM trigger into same-mg sibling threads ONLY — never rooms, other DMs, or task sessions', async () => {
     const written = await fanInboundMessage({
