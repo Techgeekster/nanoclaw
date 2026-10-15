@@ -31,6 +31,7 @@ import { isUnguarded, type Unguarded } from './guard/index.js';
 import { mapConcurrent } from './concurrency.js';
 import { fanOutboundMessage } from './modules/cross-session-context/index.js';
 import { log } from './log.js';
+import { resolveTaskOriginThread } from './task-origin-thread.js';
 import { normalizeOptions } from './channels/ask-question.js';
 import { clearOutbox, readOutboxFiles, withExistingMailboxSession } from './session-manager.js';
 import { pauseTypingRefreshAfterDelivery, setTypingAdapter } from './modules/typing/index.js';
@@ -534,10 +535,16 @@ async function deliverMessage(
       ? readOutboxFiles(session.agent_group_id, session.id, msg.id, content.files as string[])
       : undefined;
 
+  // A task session has no chat of its own: land its post in the thread of the
+  // session that created the task, not the channel root.
+  const deliverThreadId =
+    msg.threadId ??
+    (msg.channelType === 'agent' ? null : await resolveTaskOriginThread(session, msg.channelType, msg.platformId));
+
   const platformMsgId = await deliveryAdapter.deliver(
     msg.channelType,
     msg.platformId,
-    msg.threadId,
+    deliverThreadId,
     msg.kind,
     msg.content,
     files,
