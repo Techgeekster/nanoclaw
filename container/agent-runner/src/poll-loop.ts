@@ -10,6 +10,7 @@ import { getUndeliveredMessages, writeMessageOut } from './db/messages-out.js';
 import { clearStaleProcessingAcks } from './db/container-state.js';
 import { resolveDestinationThread } from './db/session-routing.js';
 import { touchHeartbeat } from './heartbeat.js';
+import { setCompactListener } from './compact-notice.js';
 import { getAgentMailbox } from './mailbox/index.js';
 import {
   clearContinuation,
@@ -571,6 +572,40 @@ export async function processQuery(
     })();
   }, ACTIVE_POLL_INTERVAL_MS);
 
+  // Compaction blocks the turn for minutes; tell the chat being answered so the
+  // silence isn't a mystery. Chat turns only — task runs report via their log.
+  const notifyChat = (text: string): void => {
+    if (routing.taskRun || !routing.platformId || !routing.channelType) return;
+    void writeMessageOut({
+      id: generateId(),
+      in_reply_to: routing.inReplyTo,
+      kind: 'chat',
+      platform_id: routing.platformId,
+      channel_type: routing.channelType,
+      thread_id: routing.threadId,
+      content: JSON.stringify({ text }),
+    }).catch((err) => log(`Compaction notice failed: ${err instanceof Error ? err.message : String(err)}`));
+  };
+  let autoCompacting = false;
+  setCompactListener({
+    onStart: (auto) => {
+      autoCompacting = auto;
+      notifyChat('🧹 Compacting my memory — back in a few minutes.');
+    },
+    onDone: () => {
+      notifyChat('▶️ Memory compacted — resuming task.');
+      // Auto-compaction interrupts work in flight and the summary can drop the
+      // thread; nudge the agent to continue without waiting for the user.
+      // Manual /compact is a user command, not an interruption, so no nudge.
+      if (autoCompacting) {
+        autoCompacting = false;
+        query.push(
+          'Your context was just compacted automatically. Continue the task you were working on before compaction; do not wait for the user.',
+        );
+      }
+    },
+  });
+
   try {
     for await (const event of query.events) {
       handleEvent(event, routing);
@@ -742,6 +777,7 @@ export async function processQuery(
   } finally {
     done = true;
     clearInterval(pollHandle);
+    setCompactListener(null);
   }
 
   return { continuation: queryContinuation };

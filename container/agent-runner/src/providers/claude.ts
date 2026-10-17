@@ -1,3 +1,4 @@
+import { notifyCompacted, notifyCompacting } from '../compact-notice.js';
 import { query as sdkQuery, type HookCallback, type PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
 
 import { clearContainerToolInFlight, setContainerToolInFlight } from '../db/container-state.js';
@@ -185,6 +186,7 @@ function createPreCompactHook(assistantName?: string): HookCallback {
       },
       REAL_CLOCK,
     );
+    notifyCompacting(preCompact.trigger === 'auto');
     return {};
   };
 }
@@ -418,6 +420,7 @@ export class ClaudeProvider implements AgentProvider {
           // re-send" nudge and the agent duplicates its previous message.
           // Compaction is bookkeeping: log it, count it as activity only.
           log(`Context compacted${detail}.`);
+          notifyCompacted();
           yield { type: 'activity' };
         } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
           const tn = message as { summary?: string };

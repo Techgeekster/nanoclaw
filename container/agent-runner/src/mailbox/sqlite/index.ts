@@ -44,6 +44,18 @@ import type {
   ProcessingStatus,
 } from '../types.js';
 
+/**
+ * `messages_in.id` is namespaced by the host as `<platformMessageId>:<agentGroupId>`
+ * (`src/router.ts` `messageIdForAgent`) to keep the row's primary key unique when one
+ * inbound message fans out to multiple agent-group sessions. Callers that need the
+ * underlying platform message id — e.g. to stamp a Discord reply reference — must
+ * strip that suffix back off, or the platform rejects it as malformed.
+ */
+function stripAgentGroupSuffix(id: string, agentGroupId: string): string {
+  const suffix = `:${agentGroupId}`;
+  return agentGroupId && id.endsWith(suffix) ? id.slice(0, -suffix.length) : id;
+}
+
 function inboundMessage(row: MessageInRow): InboundMessage {
   return parseInboundRecord({
     id: row.id,
@@ -92,6 +104,7 @@ function parseInboundMessage(row: MessageInRow): InboundMessage | undefined {
 
 export class SqliteAgentMailbox implements AgentMailbox {
   readonly operations: MailboxOperations = this;
+  private agentGroupId = '';
 
   shouldRestartAfter(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
@@ -102,7 +115,9 @@ export class SqliteAgentMailbox implements AgentMailbox {
     );
   }
 
-  async start(_key: MailboxSessionKey | null): Promise<void> {}
+  async start(key: MailboxSessionKey | null): Promise<void> {
+    this.agentGroupId = key?.agentGroupId ?? '';
+  }
 
   async run<T>(action: () => T | Promise<T>): Promise<T> {
     return action();
@@ -150,7 +165,8 @@ export class SqliteAgentMailbox implements AgentMailbox {
   }
 
   getMessageIdBySeq(sequence: number): string | null {
-    return sqliteGetMessageIdBySeq(sequence);
+    const id = sqliteGetMessageIdBySeq(sequence);
+    return id ? stripAgentGroupSuffix(id, this.agentGroupId) : null;
   }
 
   getRoutingBySeq(sequence: number) {
@@ -173,7 +189,7 @@ export class SqliteAgentMailbox implements AgentMailbox {
          ORDER BY seq DESC LIMIT 1`,
       )
       .get(channelType, platformId) as { id: string; thread_id: string | null } | undefined;
-    return row ? { threadId: row.thread_id, inReplyTo: row.id } : null;
+    return row ? { threadId: row.thread_id, inReplyTo: stripAgentGroupSuffix(row.id, this.agentGroupId) } : null;
   }
 
   getUndeliveredMessages(): OutboundMessage[] {

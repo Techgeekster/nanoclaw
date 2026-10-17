@@ -127,6 +127,45 @@ describe('SQLite runner mailbox canonical serialization', () => {
     ]);
   });
 
+  test('strips the host-side agent-group namespacing off an inbound id before it reaches a reply target', async () => {
+    const { inbound } = initTestSessionDb();
+    inbound
+      .prepare(
+        `INSERT INTO messages_in
+           (id, seq, kind, timestamp, status, process_after, recurrence, series_id, tries, trigger,
+            platform_id, channel_type, thread_id, content, on_wake)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        '1557821744503328799:ag-1788211813242-nmfcqh',
+        2,
+        'chat',
+        '2026-01-01 00:00:00',
+        'pending',
+        null,
+        null,
+        null,
+        0,
+        1,
+        'room',
+        'discord',
+        'thread',
+        '{"text":"hello"}',
+        0,
+      );
+
+    const mailbox = new SqliteAgentMailbox();
+    await mailbox.start({ agentGroupId: 'ag-1788211813242-nmfcqh', sessionId: 'session', mailbox: null });
+
+    // Without stripping, this would carry the ":ag-..." suffix through and
+    // Discord would reject it as "not a snowflake" when used as a reply target.
+    expect(mailbox.getMessageIdBySeq(2)).toBe('1557821744503328799');
+    expect(mailbox.getLatestInboundRoute('discord', 'room')).toEqual({
+      threadId: 'thread',
+      inReplyTo: '1557821744503328799',
+    });
+  });
+
   test('skips malformed pending inbound rows instead of crashing the runner', () => {
     const { inbound } = initTestSessionDb();
     inbound
