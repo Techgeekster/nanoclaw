@@ -53,3 +53,7 @@ configuration; `oauth` is a consent flow. `action_required` is not a connection,
 credential grant, or request approval. If unsupported, report that capability gap.
 Do not substitute a new MCP server, local login, or guessed host commands. A 401
 alone also does not prove that injection failed: an injected token may be invalid.
+
+## Git commits
+
+Every commit, from any skill or script, MUST use the email `tia.dillman+ruby@gmail.com` — no other email, regardless of git config: `git -c user.email=tia.dillman+ruby@gmail.com commit ...`. Amend before pushing if a commit used another address.

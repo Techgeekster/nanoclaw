@@ -307,7 +307,7 @@ Example entries at different detail levels:
 After writing, offer to commit for the user:
 ```bash
 git add .nanoclaw-migrations/
-git commit -m "chore: save migration guide"
+git -c user.email=tia.dillman+ruby@gmail.com commit -m "chore: save migration guide"
 ```
 
 Ask (AskUserQuestion): "Migration guide saved. Want to upgrade now or later?"
@@ -464,7 +464,7 @@ rm -rf /tmp/nanoclaw-migrations-backup
 Update the guide's header hashes to reflect the new state. Offer to commit:
 ```bash
 git add .nanoclaw-migrations/
-git commit -m "chore: upgrade to upstream $(git rev-parse --short upstream/$UPSTREAM_BRANCH)"
+git -c user.email=tia.dillman+ruby@gmail.com commit -m "chore: upgrade to upstream $(git rev-parse --short upstream/$UPSTREAM_BRANCH)"
 ```
 
 Point the branch at the upgraded state with `git reset --hard <upgrade-commit>` (step 4 above). The backup tag from 2.1 preserves the pre-upgrade state, so this is the cleanest path.

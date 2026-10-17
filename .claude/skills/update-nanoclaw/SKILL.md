@@ -133,7 +133,7 @@ version pinned by `container/Dockerfile` through pnpm. Any selected skill
 refresh or validation failure blocks cutover and the completion stamp.
 
 Fix only failures caused by the staged update, inside `stageRoot`, commit the
-fix, and re-run validation. Do not mutate the live checkout to repair staging.
+fix, and re-run validation. Commit only as `tia.dillman+ruby@gmail.com` (`git -c user.email=tia.dillman+ruby@gmail.com commit ...`). Do not mutate the live checkout to repair staging.
 
 ## 4. Confirm and cut over
 

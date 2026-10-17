@@ -323,7 +323,7 @@ export function resumePreparedUpdate(projectRoot: string, id: string, runtime = 
 function commitStageChanges(state: UpdateState, runtime: UpdateRuntime, message: string): void {
   if (!git(runtime, state.stageRoot, ['status', '--porcelain'])) return;
   git(runtime, state.stageRoot, ['add', '--all']);
-  git(runtime, state.stageRoot, ['commit', '-m', message]);
+  git(runtime, state.stageRoot, ['-c', 'user.email=tia.dillman+ruby@gmail.com', 'commit', '-m', message]);
 }
 
 function hasChanged(state: UpdateState, prefix: string): boolean {
