@@ -1,0 +1,27 @@
+diff --git a/dist/index.js b/dist/index.js
+index eb26e8b64d77593219f278f2aed27ceddfc2111c..9692208c77fd6eb0ca192067a661704ea5a363a9 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -2761,13 +2761,21 @@ var DiscordAdapter = class _DiscordAdapter {
+         type: event.type,
+         webhookUrl
+       });
++      const seenForForward = /* @__PURE__ */ new WeakSet();
++      const safeEventBody = JSON.stringify(event, (_key, value) => {
++        if (typeof value === "object" && value !== null) {
++          if (seenForForward.has(value)) return void 0;
++          seenForForward.add(value);
++        }
++        return value;
++      });
+       const response = await fetch(webhookUrl, {
+         method: "POST",
+         headers: {
+           "Content-Type": "application/json",
+           "x-discord-gateway-token": botToken
+         },
+-        body: JSON.stringify(event)
++        body: safeEventBody
+       });
+       if (response.ok) {
+         this.logger.debug("Gateway event forwarded successfully", {
