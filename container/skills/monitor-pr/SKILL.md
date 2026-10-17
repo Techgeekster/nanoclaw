@@ -50,7 +50,7 @@ Keep state in `/workspace/agent/monitor-pr/<owner>-<repo>-<N>.json`: `last_revie
    **Every comment thread gets a reply from you, no exceptions** — the user reads these replies to know you saw it. Reply in the thread itself (`gh api repos/<o>/<r>/pulls/<N>/comments/<id>/replies -f body=...` for inline comments; a PR comment quoting the point for top-level ones):
    - *Fixed* — `Fixed in <sha>: <one line on what changed>.`
    - *Won't fix* — `Won't fix: <one-line reason>.`
-   Reply even when the comment is a nit or a duplicate of an earlier one. Don't mark a thread resolved unless you replied first. Before finishing a round, list the round's comment ids and confirm each has your reply; a round isn't complete with any unanswered thread. For fixes, the SHA only exists after the push in step 5, so post the replies after pushing; post won't-fix replies immediately.
+   Reply even when the comment is a nit or a duplicate of an earlier one. **Never resolve a review thread or comment yourself** (no "Resolve conversation" click, no `resolveReviewThread` GraphQL mutation) unless the user has explicitly told you that you may, for this PR or in standing instructions. Replying is your job; resolving is the user's (or the reviewer bot's) call. Before finishing a round, list the round's comment ids and confirm each has your reply; a round isn't complete with any unanswered thread. For fixes, the SHA only exists after the push in step 5, so post the replies after pushing; post won't-fix replies immediately.
 4. **Fix CI failures.** For every failed check (`gh pr checks`), pull the logs (`gh run view <run-id> --log-failed`), find the root cause, and fix it in the same round as review comments. Reproduce locally where you can. Treat flaky-looking failures with care: re-run once (`gh run rerun <run-id> --failed`) only if the log shows an infra/network error, otherwise fix the code. Never skip, disable, or weaken tests/checks to get green.
 5. **Verify, commit, push.** Run the repo's tests/typecheck/lint for what you touched, make one commit per round with a message naming what was addressed, push, and update state (`last_review_id`, `last_head_sha`, `rounds += 1`). Then post the *Fixed* replies from step 3 with this commit's SHA. The bot re-reviews on push; the next run looks for it. Mention CI fixes in the commit message.
 6. **Finish** when the latest Claude review is on the current head SHA, it raised nothing new to address (or everything it raised is fixed/answered), and all CI checks have finished green (pending checks mean keep waiting):
@@ -63,6 +63,7 @@ Keep state in `/workspace/agent/monitor-pr/<owner>-<repo>-<N>.json`: `last_revie
 - If no Claude review appears within 30 minutes of a push, say so in the status update and ping the user once; the bot may not be configured on this repo.
 - If the PR is merged or closed, post a final line and cancel the task.
 - Never merge the PR, force-push, or bypass checks. Merging is the user's call.
+- Never resolve review threads on your own; only do so if the user has told you that you can.
 
 ## Troubleshooting
 
