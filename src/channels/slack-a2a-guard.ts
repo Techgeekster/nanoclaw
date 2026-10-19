@@ -86,7 +86,10 @@ export interface SlackInboundContext {
 
 /** Bot-authored inbound context — adds the authoring bot's id. */
 export interface SlackBotInboundContext extends SlackInboundContext {
-  /** Slack `bot_id` of the authoring bot (adapter's `author.userId`). */
+  /**
+   * The authoring bot's id as the adapter reports it (`author.userId`): its
+   * bot user id (`U…`) from adapter 4.40, its `bot_id` (`B…`) before.
+   */
   botId: string;
 }
 
@@ -97,7 +100,7 @@ export type SlackBotInboundDecision =
       action: 'admit';
       /**
        * When set, replaces `content.senderId` before routing (e.g.
-       * `slack:bot:<bot_id>`). The permissions module uses a senderId that
+       * `slack:bot:<botId>`). The permissions module uses a senderId that
        * already contains a `:` verbatim (see extractAndUpsertUser), so the
        * users row becomes distinguishable from human `slack:U…` ids.
        */
