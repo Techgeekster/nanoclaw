@@ -21,18 +21,32 @@ const GCHAT_DEFAULTS: ChannelDefaults = {
 
 registerChannelAdapter('gchat', {
   factory: () => {
-    const env = readEnvFile(['GCHAT_CREDENTIALS', 'GOOGLE_CHAT_BOT_USER_ID', 'GOOGLE_CHAT_PROJECT_NUMBER']);
+    const env = readEnvFile([
+      'GCHAT_CREDENTIALS',
+      'GOOGLE_CHAT_BOT_USER_ID',
+      'GOOGLE_CHAT_ENDPOINT_URL',
+      'GOOGLE_CHAT_PROJECT_NUMBER',
+    ]);
     if (!env.GCHAT_CREDENTIALS) return null;
+    const projectNumber = env.GOOGLE_CHAT_PROJECT_NUMBER;
+    if (!env.GOOGLE_CHAT_ENDPOINT_URL || !projectNumber || !/^\d+$/.test(projectNumber)) {
+      throw new Error(
+        'Google Chat needs GOOGLE_CHAT_ENDPOINT_URL and GOOGLE_CHAT_PROJECT_NUMBER (digits) in .env to verify webhooks',
+      );
+    }
     const gchatAdapter = createGoogleChatAdapter({
       credentials: JSON.parse(env.GCHAT_CREDENTIALS),
       // Adapters >= 4.40 no longer learn their own id from mentions; without
       // it, @mentions in spaces never count as mentions. Spread, because 4.29
       // has no botUserId option (it learns the id itself).
       ...(env.GOOGLE_CHAT_BOT_USER_ID ? { botUserId: env.GOOGLE_CHAT_BOT_USER_ID } : {}),
-      // The adapter refuses to start without a webhook verifier. Its own
-      // GOOGLE_CHAT_PROJECT_NUMBER fallback reads process.env, which .env
-      // never reaches, so pass it.
-      googleChatProjectNumber: env.GOOGLE_CHAT_PROJECT_NUMBER,
+      // The adapter only reads Workspace add-on events, and add-on webhooks
+      // are signed for the endpoint URL by this per-project service account.
+      // Spread, because 4.29 has neither option.
+      ...{
+        endpointUrl: env.GOOGLE_CHAT_ENDPOINT_URL,
+        workspaceAddOnServiceAccountEmail: `service-${projectNumber}@gcp-sa-gsuiteaddons.iam.gserviceaccount.com`,
+      },
     });
     return createChatSdkBridge({
       adapter: gchatAdapter,
