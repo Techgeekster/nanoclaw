@@ -42,7 +42,7 @@ registerChannelAdapter('gchat', {
       ...(env.GOOGLE_CHAT_BOT_USER_ID ? { botUserId: env.GOOGLE_CHAT_BOT_USER_ID } : {}),
       // The adapter only reads Workspace add-on events, and add-on webhooks
       // are signed for the endpoint URL by this per-project service account.
-      // Spread, because 4.29 has neither option.
+      // Spread, because 4.29 has no workspaceAddOnServiceAccountEmail option.
       ...{
         endpointUrl: env.GOOGLE_CHAT_ENDPOINT_URL,
         workspaceAddOnServiceAccountEmail: `service-${projectNumber}@gcp-sa-gsuiteaddons.iam.gserviceaccount.com`,
