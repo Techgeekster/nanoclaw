@@ -24,7 +24,7 @@ import {
 import { log } from '../log.js';
 import { SqliteStateAdapter } from '../state-sqlite.js';
 import { registerWebhookAdapter } from '../webhook-server.js';
-import { normalizeOptions, type NormalizedOption } from './ask-question.js';
+import { CardTooLongError, cardQuestionTooLong, normalizeOptions, type NormalizedOption } from './ask-question.js';
 import type { ChannelAdapter, ChannelDefaults, ChannelSetup, InboundMessage } from './adapter.js';
 import { INSTANCE_KEY_RE } from './channel-registry.js';
 import { resolveQuestionRender, dispatchQuestionAction } from './question-render-registry.js';
@@ -374,6 +374,20 @@ export interface ChatSdkBridgeConfig {
    */
   transformOutboundText?: (text: string) => string;
   /**
+   * Optional escape for host-built ask_question card text (open and resolved
+   * cards). Approval cards mix host wording with untrusted values (agent
+   * arguments, sender names); channels whose card text is raw platform markup
+   * set this. Questions an agent asks itself (`fromAgent`) keep their markup.
+   */
+  escapeCardText?: (text: string) => string;
+  /**
+   * For a platform that caps a whole card's text: the longest ask_question
+   * title plus card text (after escapeCardText) it shows in full. A longer
+   * card is refused with CardTooLongError. Unset, long card text is posted
+   * in several text blocks, each under CARD_TEXT_BLOCK_LENGTH.
+   */
+  maxCardTextLength?: number;
+  /**
    * Maximum text length the underlying adapter accepts in a single message.
    * When set, the bridge splits outbound text longer than this on paragraph
    * → line → hard-char boundaries and posts multiple messages. Without this,
@@ -414,6 +428,8 @@ function resolveSelectedOption(
 interface TerminalApprovalCard {
   title: string;
   question: string;
+  /** The question as separate text blocks, when it was split to fit. */
+  questionBlocks?: string[];
   resolution: string;
 }
 
@@ -422,9 +438,9 @@ interface TerminalApprovalCard {
  * replaces the actions row, making the card visibly inactive without
  * discarding the request an admin decided on.
  */
-export function buildTerminalApprovalCard({ title, question, resolution }: TerminalApprovalCard) {
+export function buildTerminalApprovalCard({ title, question, questionBlocks, resolution }: TerminalApprovalCard) {
   const children: CardChild[] = [];
-  if (question) children.push(CardText(question));
+  for (const block of questionBlocks ?? (question ? [question] : [])) children.push(CardText(block));
   children.push(CardText(resolution, { style: 'muted' }));
   return Card({ title, children });
 }
@@ -434,6 +450,63 @@ function terminalApprovalMessage(spec: TerminalApprovalCard) {
     card: buildTerminalApprovalCard(spec),
     fallbackText: [spec.title, spec.question, spec.resolution].filter(Boolean).join('\n\n'),
   };
+}
+
+/**
+ * Longest text in one card text block. Some platforms cap each block, and an
+ * adapter can still lengthen text (emoji names) after the bridge measures it.
+ */
+export const CARD_TEXT_BLOCK_LENGTH = 2000;
+
+const FENCE = '```';
+/** A fence opens or closes only at the start of a line; backticks mid-line are text. */
+const FENCE_LINE = /^ {0,3}```/gm;
+
+/**
+ * Split card text into blocks of at most `limit` characters after `escape`, so
+ * a per-block cap never cuts one. Prefers a line break near the limit, never
+ * splits a surrogate pair or a fence marker, and closes and reopens a code
+ * fence that spans two blocks.
+ */
+export function splitCardText(text: string, escape: (t: string) => string, limit: number): string[] {
+  const blocks: string[] = [];
+  let rest = text;
+  let reopen = false;
+  const render = (raw: string) => {
+    const body = (reopen ? `${FENCE}\n` : '') + raw;
+    const open = (body.match(FENCE_LINE)?.length ?? 0) % 2 === 1;
+    return { block: escape(open ? `${body}\n${FENCE}` : body), open };
+  };
+  const fits = (n: number) => render(rest.slice(0, n)).block.length <= limit;
+  while (rest) {
+    let cut = rest.length;
+    if (!fits(cut)) {
+      // Longest prefix that fits; the search only ever keeps lengths that fit.
+      let lo = 0;
+      let hi = rest.length - 1;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (fits(mid)) lo = mid;
+        else hi = mid - 1;
+      }
+      cut = lo;
+      const afterLine = rest.lastIndexOf('\n', cut - 1) + 1;
+      if (afterLine > cut / 2 && fits(afterLine)) cut = afterLine;
+      // Backing off a fence marker can change which fences close, so recheck.
+      const badCut = (n: number) => isHighSurrogate(rest.charCodeAt(n - 1)) || (rest[n - 1] === '`' && rest[n] === '`');
+      while (cut > 0 && (badCut(cut) || !fits(cut))) cut--;
+      if (cut === 0) throw new CardTooLongError('the request cannot be split into card text blocks');
+    }
+    const { block, open } = render(rest.slice(0, cut));
+    blocks.push(block);
+    rest = rest.slice(cut);
+    reopen = open;
+  }
+  return blocks;
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
 }
 
 export function splitForLimit(text: string, limit: number): string[] {
@@ -484,6 +557,14 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
     );
   }
   const transformText = (t: string): string => (config.transformOutboundText ? config.transformOutboundText(t) : t);
+  const cardText = (t: string): string => (config.escapeCardText ? config.escapeCardText(t) : t);
+  const terminalMessage = (spec: TerminalApprovalCard) =>
+    terminalApprovalMessage({
+      ...spec,
+      question: cardText(spec.question),
+      questionBlocks: spec.question ? splitCardText(spec.question, cardText, CARD_TEXT_BLOCK_LENGTH) : undefined,
+      resolution: cardText(spec.resolution),
+    });
   /** Registry/routing key for this bridge — also the app-context cache
    *  namespace. Default instances key by the platform name. */
   const instanceKey = config.instance ?? adapter.name;
@@ -728,7 +809,7 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
             tid,
             event.messageId,
             render?.question
-              ? terminalApprovalMessage({ title, question: render.question, resolution })
+              ? terminalMessage({ title, question: render.question, resolution })
               : { markdown: `${title}\n\n${resolution}` },
           );
         } catch (err) {
@@ -849,7 +930,7 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
           await adapter.editMessage(
             tid,
             content.messageId as string,
-            terminalApprovalMessage(terminalCard as TerminalApprovalCard),
+            terminalMessage(terminalCard as TerminalApprovalCard),
           );
         } else {
           await adapter.editMessage(tid, content.messageId as string, {
@@ -879,11 +960,22 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
           return result?.id;
         }
         if (content.requirePresentation) throw new Error('Approval presentation adapter is unavailable');
+        // Long text goes out as several blocks, measured after escaping, so no
+        // per-block cap cuts it. A platform that caps the whole card refuses
+        // what it can't show, counting the fences the split adds.
+        // Questions an agent asks itself keep their own markup (`fromAgent`).
+        const escape = content.fromAgent === true ? (t: string) => t : cardText;
+        const text = escape(question);
+        const blocks = splitCardText(question, escape, CARD_TEXT_BLOCK_LENGTH);
+        if (config.maxCardTextLength !== undefined) {
+          const tooLong = cardQuestionTooLong(title, blocks.join('\n'), config.maxCardTextLength);
+          if (tooLong) throw new CardTooLongError(tooLong);
+        }
         const options: NormalizedOption[] = normalizeOptions(content.options as never);
         const card = Card({
           title,
           children: [
-            CardText(question),
+            ...blocks.map((block) => CardText(block)),
             Actions(
               // Encode button id/value with the option index rather than the
               // full value. Telegram caps callback_data at 64 bytes, and
@@ -898,7 +990,7 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
         });
         const result = await adapter.postMessage(tid, {
           card,
-          fallbackText: `${title}\n\n${question}\nOptions: ${options.map((o) => o.label).join(', ')}`,
+          fallbackText: `${title}\n\n${text}\nOptions: ${options.map((o) => o.label).join(', ')}`,
         });
         return result?.id;
       }
