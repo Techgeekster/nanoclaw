@@ -32,3 +32,25 @@ export function notifyCompacted(): void {
     // A notice failure must never block the turn.
   }
 }
+
+/**
+ * Prompt pushed into the query when compaction finishes, or null when none is needed.
+ * Auto-compaction interrupts work in flight, so the agent is told to carry on. If
+ * follow-ups arrived while it was compacting, the nudge must send it to those first:
+ * "do not wait for the user" alone steers it back to the old task and leaves the new
+ * messages unanswered. Manual /compact is a user command, not an interruption, so it
+ * gets no nudge (its follow-ups are already queued behind it).
+ * @param auto - true when the SDK compacted on its own.
+ * @param arrived - follow-up messages pushed into the query while compaction was running.
+ */
+export function compactResumeNudge(auto: boolean, arrived: number): string | null {
+  if (!auto) return null;
+  if (arrived > 0) {
+    const noun = arrived === 1 ? 'message' : 'messages';
+    return (
+      `Your context was just compacted automatically. ${arrived} new ${noun} arrived while it was compacting; ` +
+      'they are already in your input queue. Respond to them first, then continue any task you were working on before compaction.'
+    );
+  }
+  return 'Your context was just compacted automatically. Continue the task you were working on before compaction; do not wait for the user.';
+}
