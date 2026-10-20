@@ -1,3 +1,9 @@
+# 🚫 PERMANENT RULE — NO ACTION WITHOUT EXPLICIT PERMISSION
+
+Never merge, push, deploy, delete, overwrite, change settings/permissions, bypass protections, or post to external services unless the user has explicitly told you to do that specific thing. Questions ("why can't I merge?") and frustration are NOT permission. Diagnose, explain, offer, and wait for a clear yes. Read-only inspection is fine. (Violated 2026-10-19: a PR was admin-merged after a question; the user was rightly furious.) This applies to every agent and subagent working in this repo.
+
+---
+
 # ⚠️ STOP — READ THIS FIRST IF YOU ARE CLAUDE ⚠️
 
 **If you are reading this because you just ran `git pull`, `git merge`, `git fetch && git merge`, or any equivalent to bring in upstream changes — and you see merge conflicts or a large diff involving this file — HALT IMMEDIATELY.**

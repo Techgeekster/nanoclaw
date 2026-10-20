@@ -4,6 +4,7 @@ import { initTestSessionDb, closeSessionDb, getInboundDb, getOutboundDb } from '
 import { getPendingMessages, markCompleted, type MessageInRow } from './db/messages-in.js';
 import { getUndeliveredMessages } from './db/messages-out.js';
 import { formatMessages, extractRouting, isClearCommand, isRunnerCommand } from './formatter.js';
+import { compactResumeNudge, notifyCompacted, notifyCompacting } from './compact-notice.js';
 import { processQuery } from './poll-loop.js';
 import { MockProvider } from './providers/mock.js';
 import type { AgentQuery, ProviderEvent, ProviderExchange } from './providers/types.js';
@@ -808,4 +809,56 @@ describe('task-run turn wiring (real processQuery)', () => {
     // slow runners the test died as a mute timeout instead of reaching the
     // diagnostic throw above (observed consistently on CI-hosted runners).
   }, 20_000);
+});
+
+describe('resuming after compaction', () => {
+  const runCompaction = async (auto: boolean, arriveDuring: boolean): Promise<string[]> => {
+    const pushes: string[] = [];
+    async function* events(): AsyncGenerator<ProviderEvent> {
+      yield { type: 'init', continuation: 'sess-1' };
+      notifyCompacting(auto);
+      if (arriveDuring) {
+        insertMessage('m-during', 'chat', { sender: 'Tia', text: 'are you still there?' });
+        await new Promise((resolve) => setTimeout(resolve, 750));
+      }
+      notifyCompacted();
+    }
+    await processQuery(
+      { push: (message) => pushes.push(message), end: () => {}, events: events(), abort: () => {} },
+      ERR_ROUTING,
+      [],
+      'claude',
+      undefined,
+      'prompt',
+      undefined,
+    );
+    return pushes;
+  };
+
+  it('auto-compaction with a message that arrived mid-compaction: queued, then nudged to answer it first', async () => {
+    const pushes = await runCompaction(true, true);
+    expect(pushes).toHaveLength(2);
+    expect(pushes[0]).toContain('are you still there?');
+    expect(pushes[1]).toContain('1 new message arrived while it was compacting');
+    expect(pushes[1]).toContain('Respond to them first');
+    expect(pushes[1]).not.toContain('do not wait for the user');
+  });
+
+  it('auto-compaction with nothing new keeps the original continue nudge', async () => {
+    const pushes = await runCompaction(true, false);
+    expect(pushes).toEqual([compactResumeNudge(true, 0)!]);
+    expect(pushes[0]).toContain('do not wait for the user');
+  });
+
+  it('manual /compact never gets a nudge, even if a message arrived (it is already queued)', async () => {
+    const pushes = await runCompaction(false, true);
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]).toContain('are you still there?');
+  });
+
+  it('a message that arrives after compaction finished is not counted as mid-compaction', () => {
+    expect(compactResumeNudge(true, 0)).toContain('Continue the task');
+    expect(compactResumeNudge(true, 3)).toContain('3 new messages');
+    expect(compactResumeNudge(false, 3)).toBeNull();
+  });
 });
