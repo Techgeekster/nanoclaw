@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -13,17 +14,45 @@ vi.mock('./channel-registry.js', async (importOriginal) => ({
   registerChannelAdapter: (name: string, registration: ChannelRegistration) => registered.set(name, registration),
 }));
 
+// Keep the real adapter, but remember each one the factory builds.
+const created = vi.hoisted(() => [] as unknown[]);
+vi.mock('@chat-adapter/gchat', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@chat-adapter/gchat')>();
+  return {
+    ...actual,
+    createGoogleChatAdapter: (...args: Parameters<typeof actual.createGoogleChatAdapter>) => {
+      const adapter = actual.createGoogleChatAdapter(...args);
+      created.push(adapter);
+      return adapter;
+    },
+  };
+});
+
 import './gchat.js';
 
-const credentials = { client_email: 'nanoclaw@example.iam.gserviceaccount.com', private_key: 'unused' };
+// A throwaway key, so the factory's key check sees a real PEM.
+const { privateKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+});
+const credentials = { client_email: 'nanoclaw@example.iam.gserviceaccount.com', private_key: privateKey };
+const ENDPOINT = 'https://chat.example.com/webhook/gchat';
+const PROJECT = '123456789012';
 
 // The adapter falls back to these process.env names; clear them so only .env counts.
 const ADAPTER_ENV = [
   'GOOGLE_CHAT_PROJECT_NUMBER',
   'GOOGLE_CHAT_PUBSUB_AUDIENCE',
   'GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION',
+  'GOOGLE_CHAT_WORKSPACE_ADDON_SERVICE_ACCOUNT_EMAIL',
   'GOOGLE_CHAT_CREDENTIALS',
 ];
+
+interface WebhookProbe {
+  oauth2Client: { verifyIdToken: (opts: { idToken: string; audience: string }) => Promise<unknown> };
+  handleWebhook: (request: Request) => Promise<Response>;
+}
 
 describe('gchat factory', () => {
   let dir: string;
@@ -32,6 +61,7 @@ describe('gchat factory', () => {
     for (const name of ADAPTER_ENV) vi.stubEnv(name, undefined);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gchat-env-'));
     vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    created.length = 0;
   });
 
   afterEach(() => {
@@ -44,18 +74,89 @@ describe('gchat factory', () => {
     fs.writeFileSync(path.join(dir, '.env'), lines.join('\n') + '\n');
   }
 
+  const fullEnv = [
+    `GCHAT_CREDENTIALS=${JSON.stringify(credentials)}`,
+    `GOOGLE_CHAT_ENDPOINT_URL=${ENDPOINT}`,
+    `GOOGLE_CHAT_PROJECT_NUMBER=${PROJECT}`,
+  ];
+
+  // Google's signature check is stubbed; the token's claims are what this pins.
+  async function postAddOnWebhook(email: string): Promise<{ status: number; audience?: string }> {
+    writeEnv(fullEnv);
+    expect((await registered.get('gchat')!.factory())?.channelType).toBe('gchat');
+    const adapter = created.at(-1) as WebhookProbe;
+    const verify = vi
+      .spyOn(adapter.oauth2Client, 'verifyIdToken')
+      .mockResolvedValue({ getPayload: () => ({ aud: ENDPOINT, email, email_verified: true }) });
+    const res = await adapter.handleWebhook(
+      new Request(ENDPOINT, {
+        method: 'POST',
+        headers: { authorization: 'Bearer token' },
+        body: JSON.stringify({ chat: {} }),
+      }),
+    );
+    return { status: res.status, audience: verify.mock.calls[0]?.[0].audience };
+  }
+
   it('adapter refuses to start with credentials alone', () => {
     expect(() => createGoogleChatAdapter({ credentials })).toThrow(/signature verification is required/);
   });
 
-  it('starts when GOOGLE_CHAT_PROJECT_NUMBER is only in .env', async () => {
-    writeEnv([`GCHAT_CREDENTIALS=${JSON.stringify(credentials)}`, 'GOOGLE_CHAT_PROJECT_NUMBER=123456789012']);
-    const adapter = await registered.get('gchat')!.factory();
-    expect(adapter?.channelType).toBe('gchat');
+  it("accepts webhooks from this project's Workspace add-on", async () => {
+    expect(await postAddOnWebhook(`service-${PROJECT}@gcp-sa-gsuiteaddons.iam.gserviceaccount.com`)).toEqual({
+      status: 200,
+      audience: ENDPOINT,
+    });
+  });
+
+  it("rejects another project's Workspace add-on", async () => {
+    const { status } = await postAddOnWebhook('service-999999999999@gcp-sa-gsuiteaddons.iam.gserviceaccount.com');
+    expect(status).toBe(401);
+  });
+
+  it.each([
+    ['GOOGLE_CHAT_ENDPOINT_URL', fullEnv.filter((l) => !l.startsWith('GOOGLE_CHAT_ENDPOINT_URL='))],
+    ['GOOGLE_CHAT_PROJECT_NUMBER', fullEnv.filter((l) => !l.startsWith('GOOGLE_CHAT_PROJECT_NUMBER='))],
+  ])('refuses to start without %s', (_key, lines) => {
+    writeEnv(lines);
+    expect(() => registered.get('gchat')!.factory()).toThrow(/GOOGLE_CHAT_ENDPOINT_URL and GOOGLE_CHAT_PROJECT_NUMBER/);
+  });
+
+  it.each(['not a url', 'http://chat.example.com/webhook/gchat'])('refuses to start with endpoint URL %s', (url) => {
+    writeEnv(fullEnv.map((l) => (l.startsWith('GOOGLE_CHAT_ENDPOINT_URL=') ? `GOOGLE_CHAT_ENDPOINT_URL=${url}` : l)));
+    expect(() => registered.get('gchat')!.factory()).toThrow(/GOOGLE_CHAT_ENDPOINT_URL .*https URL/);
+  });
+
+  it.each([
+    '{}',
+    '{"client_email":"a@b.c"}',
+    '{"client_email":"","private_key":""}',
+    '{"client_email":"a@b.c","private_key":"not a key"}',
+    'not-json-SECRET-MARKER',
+  ])('refuses credentials %s without echoing them', async (creds) => {
+    writeEnv(fullEnv.map((l) => (l.startsWith('GCHAT_CREDENTIALS=') ? `GCHAT_CREDENTIALS=${creds}` : l)));
+    const err = await Promise.resolve()
+      .then(() => registered.get('gchat')!.factory())
+      .then(
+        () => undefined,
+        (e: unknown) => e as Error,
+      );
+    // Exact match: any quoted fragment of the value would break it.
+    expect(err?.message).toBe('GCHAT_CREDENTIALS in .env must be the service account JSON key on one line');
+  });
+
+  it('refuses a non-RSA private key', () => {
+    const ed25519 = generateKeyPairSync('ed25519', {
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    }).privateKey;
+    const creds = JSON.stringify({ client_email: 'a@b.c', private_key: ed25519 });
+    writeEnv(fullEnv.map((l) => (l.startsWith('GCHAT_CREDENTIALS=') ? `GCHAT_CREDENTIALS=${creds}` : l)));
+    expect(() => registered.get('gchat')!.factory()).toThrow(/GCHAT_CREDENTIALS .*service account JSON key/);
   });
 
   it('returns null without credentials', async () => {
-    writeEnv(['GOOGLE_CHAT_PROJECT_NUMBER=123456789012']);
+    writeEnv(fullEnv.filter((l) => !l.startsWith('GCHAT_CREDENTIALS=')));
     expect(await registered.get('gchat')!.factory()).toBeNull();
   });
 });
