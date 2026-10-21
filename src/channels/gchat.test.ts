@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -29,7 +30,13 @@ vi.mock('@chat-adapter/gchat', async (importOriginal) => {
 
 import './gchat.js';
 
-const credentials = { client_email: 'nanoclaw@example.iam.gserviceaccount.com', private_key: 'unused' };
+// A throwaway key, so the factory's key check sees a real PEM.
+const { privateKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+});
+const credentials = { client_email: 'nanoclaw@example.iam.gserviceaccount.com', private_key: privateKey };
 const ENDPOINT = 'https://chat.example.com/webhook/gchat';
 const PROJECT = '123456789012';
 
@@ -113,6 +120,39 @@ describe('gchat factory', () => {
   ])('refuses to start without %s', (_key, lines) => {
     writeEnv(lines);
     expect(() => registered.get('gchat')!.factory()).toThrow(/GOOGLE_CHAT_ENDPOINT_URL and GOOGLE_CHAT_PROJECT_NUMBER/);
+  });
+
+  it.each(['not a url', 'http://chat.example.com/webhook/gchat'])('refuses to start with endpoint URL %s', (url) => {
+    writeEnv(fullEnv.map((l) => (l.startsWith('GOOGLE_CHAT_ENDPOINT_URL=') ? `GOOGLE_CHAT_ENDPOINT_URL=${url}` : l)));
+    expect(() => registered.get('gchat')!.factory()).toThrow(/GOOGLE_CHAT_ENDPOINT_URL .*https URL/);
+  });
+
+  it.each([
+    '{}',
+    '{"client_email":"a@b.c"}',
+    '{"client_email":"","private_key":""}',
+    '{"client_email":"a@b.c","private_key":"not a key"}',
+    'not-json-SECRET-MARKER',
+  ])('refuses credentials %s without echoing them', async (creds) => {
+    writeEnv(fullEnv.map((l) => (l.startsWith('GCHAT_CREDENTIALS=') ? `GCHAT_CREDENTIALS=${creds}` : l)));
+    const err = await Promise.resolve()
+      .then(() => registered.get('gchat')!.factory())
+      .then(
+        () => undefined,
+        (e: unknown) => e as Error,
+      );
+    // Exact match: any quoted fragment of the value would break it.
+    expect(err?.message).toBe('GCHAT_CREDENTIALS in .env must be the service account JSON key on one line');
+  });
+
+  it('refuses a non-RSA private key', () => {
+    const ed25519 = generateKeyPairSync('ed25519', {
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    }).privateKey;
+    const creds = JSON.stringify({ client_email: 'a@b.c', private_key: ed25519 });
+    writeEnv(fullEnv.map((l) => (l.startsWith('GCHAT_CREDENTIALS=') ? `GCHAT_CREDENTIALS=${creds}` : l)));
+    expect(() => registered.get('gchat')!.factory()).toThrow(/GCHAT_CREDENTIALS .*service account JSON key/);
   });
 
   it('returns null without credentials', async () => {
