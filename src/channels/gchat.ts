@@ -22,14 +22,14 @@ function parseCredentials(raw: string): { client_email: string; private_key: str
   }
   const email = parsed?.client_email;
   const key = parsed?.private_key;
-  if (typeof email !== 'string' || !email.includes('@') || typeof key !== 'string' || !isPrivateKey(key)) {
+  if (typeof email !== 'string' || !email.includes('@') || typeof key !== 'string' || !isRsaKey(key)) {
     throw new Error('GCHAT_CREDENTIALS in .env must be the service account JSON key on one line');
   }
   return { ...parsed, client_email: email, private_key: key };
 }
 
 // Google signs service account JWTs with RSA; any other key type fails at first use.
-function isPrivateKey(pem: string): boolean {
+function isRsaKey(pem: string): boolean {
   try {
     return createPrivateKey(pem).asymmetricKeyType === 'rsa';
   } catch (err) {
