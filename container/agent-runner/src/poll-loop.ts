@@ -11,6 +11,7 @@ import { clearStaleProcessingAcks } from './db/container-state.js';
 import { resolveDestinationThread } from './db/session-routing.js';
 import { touchHeartbeat } from './heartbeat.js';
 import { compactResumeNudge, setCompactListener } from './compact-notice.js';
+import { buildHistoryBackfill } from './history-backfill.js';
 import { getAgentMailbox } from './mailbox/index.js';
 import {
   clearContinuation,
@@ -124,6 +125,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
 
   let pollCount = 0;
   let isFirstPoll = true;
+  let historyBackfillDone = false;
   while (true) {
     if (config.signal?.aborted) return;
     // Skip system messages — they're responses for MCP tools (e.g., ask_user_question)
@@ -235,7 +237,20 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
 
     // Format messages: passthrough commands get raw text (only if the
     // provider natively handles slash commands), others get XML.
-    const prompt = formatMessagesWithCommands(keep, nativeSlashCommands, config.providerName);
+    let prompt = formatMessagesWithCommands(keep, nativeSlashCommands, config.providerName);
+
+    // Fresh start (rotated, stale, or never-saved session): the provider has no
+    // transcript, so carry the conversation's tail over from the session DBs.
+    // Chat batches only — a task run is isolated from the chat — and once per
+    // runner: after the first query the provider holds the context itself.
+    if (!continuation && !historyBackfillDone && keep.some((m) => m.kind === 'chat' || m.kind === 'chat-sdk')) {
+      const history = buildHistoryBackfill();
+      if (history) {
+        log('Fresh session — prepending recent conversation history');
+        prompt = `${history}\n\n${prompt}`;
+      }
+    }
+    historyBackfillDone = true;
 
     log(`Processing ${keep.length} message(s), kinds: ${[...new Set(keep.map((m) => m.kind))].join(',')}`);
 

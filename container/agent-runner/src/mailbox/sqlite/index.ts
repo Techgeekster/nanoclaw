@@ -1,6 +1,7 @@
 import {
   closeSessionDb,
   getInboundDb,
+  getOutboundDb,
   sqliteClearContainerToolInFlight,
   sqliteClearStaleProcessingAcks,
   sqliteSetContainerToolInFlight,
@@ -194,6 +195,28 @@ export class SqliteAgentMailbox implements AgentMailbox {
 
   getUndeliveredMessages(): OutboundMessage[] {
     return sqliteGetUndeliveredMessages().map(outboundMessage);
+  }
+
+  getRecentHistory(limit: number): { inbound: InboundMessage[]; outbound: OutboundMessage[] } {
+    // Completed rows only: pending/processing rows are about to be in the prompt itself.
+    const inboundRows = getInboundDb()
+      .prepare(
+        `SELECT * FROM messages_in
+         WHERE status = 'completed' AND kind IN ('chat', 'chat-sdk')
+           AND (channel_type IS NULL OR channel_type != 'session-echo')
+         ORDER BY seq DESC LIMIT ?`,
+      )
+      .all(limit) as MessageInRow[];
+    const outboundRows = getOutboundDb()
+      .prepare(`SELECT * FROM messages_out WHERE kind = 'chat' ORDER BY seq DESC LIMIT ?`)
+      .all(limit) as MessageOutRow[];
+    return {
+      inbound: inboundRows.flatMap((row) => {
+        const message = parseInboundMessage(row);
+        return message ? [message] : [];
+      }),
+      outbound: outboundRows.map(outboundMessage),
+    };
   }
 
   getState(key: string) {

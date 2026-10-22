@@ -54,6 +54,8 @@ export interface MailboxOperations {
   getRoutingBySeq(sequence: number): SessionRouting | null;
   getLatestInboundRoute(channelType: string, platformId: string): { threadId: string | null; inReplyTo: string } | null;
   getUndeliveredMessages(): OutboundMessage[];
+  /** Newest already-handled chat rows in each direction (newest first), for rebuilding context after a fresh start. */
+  getRecentHistory(limit: number): { inbound: InboundMessage[]; outbound: OutboundMessage[] };
   getState(key: string): StateValue | undefined;
   setState(key: string, value: string): void;
   deleteState(key: string): void;
