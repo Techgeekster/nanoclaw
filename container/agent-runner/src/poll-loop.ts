@@ -10,7 +10,8 @@ import { getUndeliveredMessages, writeMessageOut, type MessageOutRow } from './d
 import { clearStaleProcessingAcks } from './db/container-state.js';
 import { resolveDestinationThread } from './db/session-routing.js';
 import { touchHeartbeat } from './heartbeat.js';
-import { setCompactListener } from './compact-notice.js';
+import { compactResumeNudge, setCompactListener } from './compact-notice.js';
+import { buildHistoryBackfill } from './history-backfill.js';
 import { getAgentMailbox } from './mailbox/index.js';
 import {
   clearContinuation,
@@ -125,6 +126,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
 
   let pollCount = 0;
   let isFirstPoll = true;
+  let historyBackfillDone = false;
   while (true) {
     if (config.signal?.aborted) return;
     // Skip system messages — they're responses for MCP tools (e.g., ask_user_question)
@@ -236,7 +238,20 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
 
     // Format messages: passthrough commands get raw text (only if the
     // provider natively handles slash commands), others get XML.
-    const prompt = formatMessagesWithCommands(keep, nativeSlashCommands, config.providerName);
+    let prompt = formatMessagesWithCommands(keep, nativeSlashCommands, config.providerName);
+
+    // Fresh start (rotated, stale, or never-saved session): the provider has no
+    // transcript, so carry the conversation's tail over from the session DBs.
+    // Chat batches only — a task run is isolated from the chat — and once per
+    // runner: after the first query the provider holds the context itself.
+    if (!continuation && !historyBackfillDone && keep.some((m) => m.kind === 'chat' || m.kind === 'chat-sdk')) {
+      const history = buildHistoryBackfill();
+      if (history) {
+        log('Fresh session — prepending recent conversation history');
+        prompt = `${history}\n\n${prompt}`;
+      }
+    }
+    historyBackfillDone = true;
 
     log(`Processing ${keep.length} message(s), kinds: ${[...new Set(keep.map((m) => m.kind))].join(',')}`);
 
@@ -464,6 +479,9 @@ export async function processQuery(
   // will kill the container and messages get reset to pending.
   let pollInFlight = false;
   let endedForCommand = false;
+  // Follow-ups pushed while the SDK is compacting; the resume nudge points the agent at them.
+  let compacting = false;
+  let arrivedWhileCompacting = 0;
   let mailboxFailureStreak = 0;
   const pollHandle = setInterval(() => {
     if (done || pollInFlight || endedForCommand) return;
@@ -541,6 +559,7 @@ export async function processQuery(
         log(`Pushing ${keep.length} follow-up message(s) into active query`);
         query.push(prompt);
         archivePrompts.push(prompt);
+        if (compacting) arrivedWhileCompacting += keep.length;
         const next: QueuedTurn = {
           routing: extractRouting(keep),
           unwrappedNudged: false,
@@ -599,19 +618,21 @@ export async function processQuery(
   setCompactListener({
     onStart: (auto) => {
       autoCompacting = auto;
+      compacting = true;
+      arrivedWhileCompacting = 0;
       notifyChat('🧹 Compacting my memory — back in a few minutes.');
     },
     onDone: () => {
+      compacting = false;
       notifyChat('▶️ Memory compacted — resuming task.');
       // Auto-compaction interrupts work in flight and the summary can drop the
-      // thread; nudge the agent to continue without waiting for the user.
-      // Manual /compact is a user command, not an interruption, so no nudge.
-      if (autoCompacting) {
-        autoCompacting = false;
-        query.push(
-          'Your context was just compacted automatically. Continue the task you were working on before compaction; do not wait for the user.',
-        );
-      }
+      // thread; nudge the agent to continue without waiting for the user, and to
+      // answer anything that arrived mid-compaction first. Manual /compact is a
+      // user command, not an interruption, so no nudge.
+      const nudge = compactResumeNudge(autoCompacting, arrivedWhileCompacting);
+      autoCompacting = false;
+      arrivedWhileCompacting = 0;
+      if (nudge) query.push(nudge);
     },
   });
 

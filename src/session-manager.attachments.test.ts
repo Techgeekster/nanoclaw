@@ -176,3 +176,30 @@ describe('extractAttachmentFiles — inbox-root symlink containment (#2828 sibli
     expect(fs.readdirSync(canaryDir)).toHaveLength(0);
   });
 });
+
+describe('extractAttachmentFiles — same-named attachments', () => {
+  it('saves every attachment when they share a filename (Discord pasted images)', async () => {
+    const att = (b: string) => ({
+      type: 'image',
+      name: 'image.png',
+      mimeType: 'image/png',
+      data: Buffer.from(b).toString('base64'),
+    });
+
+    await writeSessionMessage(AG, SESS, {
+      id: 'multi-image',
+      kind: 'chat',
+      timestamp: now(),
+      platformId: 'discord:123',
+      channelType: 'discord',
+      threadId: null,
+      content: JSON.stringify({ text: 'three', attachments: [att('one'), att('two'), att('three')] }),
+    });
+
+    const dir = path.join(sessionDir(AG, SESS), 'inbox', 'multi-image');
+    expect(fs.readdirSync(dir).sort()).toEqual(['image-2.png', 'image-3.png', 'image.png']);
+    expect(fs.readFileSync(path.join(dir, 'image.png'), 'utf8')).toBe('one');
+    expect(fs.readFileSync(path.join(dir, 'image-2.png'), 'utf8')).toBe('two');
+    expect(fs.readFileSync(path.join(dir, 'image-3.png'), 'utf8')).toBe('three');
+  });
+});

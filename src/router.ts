@@ -17,7 +17,6 @@
  * drops (no agent wired, no trigger match); the access gate writes rows
  * for policy refusals.
  */
-import { ackInboundMessage } from './inbound-ack.js';
 import { getChannelAdapter, getChannelDefaults } from './channels/channel-registry.js';
 import { resolveThreadPolicy, resolveUnknownSenderPolicy } from './channels/channel-defaults.js';
 import { gateCommand } from './command-gate.js';
@@ -654,14 +653,6 @@ async function deliverToAgent(
       effectiveThreadId,
       mg.instance,
     );
-    ackInboundMessage({
-      kind: event.message.kind,
-      channelType: event.channelType,
-      platformId: event.platformId,
-      threadId: effectiveThreadId,
-      instance: mg.instance,
-      content: event.message.content,
-    });
     const freshSession = await getSession(session.id);
     if (freshSession) {
       const woke = await requestWake(freshSession, 'inbound-message');

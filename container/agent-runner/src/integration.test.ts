@@ -346,6 +346,48 @@ describe('poll loop integration', () => {
 });
 
 // Helper: run poll loop until aborted or timeout
+describe('fresh-start history backfill', () => {
+  const seedHistory = () => {
+    getInboundDb()
+      .prepare(
+        `INSERT INTO messages_in (id, kind, timestamp, status, trigger, content)
+         VALUES ('old1', 'chat', '2026-10-21T10:00:00.000Z', 'completed', 1, ?)`,
+      )
+      .run(JSON.stringify({ sender: 'Alice', text: 'we agreed to ship Friday' }));
+  };
+
+  const runOnce = async (): Promise<string[]> => {
+    const prompts: string[] = [];
+    const provider = new MockProvider({}, (prompt) => {
+      prompts.push(prompt);
+      return '<message to="discord-test">ok</message>';
+    });
+    const controller = new AbortController();
+    const loopPromise = runPollLoopWithTimeout(provider, controller.signal, 2000);
+    await waitFor(() => getUndeliveredMessages().length > 0, 2000);
+    controller.abort();
+    await loopPromise.catch(() => {});
+    return prompts;
+  };
+
+  it('prepends recent history when there is no saved session', async () => {
+    seedHistory();
+    insertMessage('new1', { sender: 'Alice', text: 'what did we agree?' });
+    const [prompt] = await runOnce();
+    expect(prompt).toContain('<recent-history>');
+    expect(prompt).toContain('we agreed to ship Friday');
+    expect(prompt.indexOf('we agreed to ship Friday')).toBeLessThan(prompt.indexOf('what did we agree?'));
+  });
+
+  it('does not prepend history when a saved session is resumed', async () => {
+    seedHistory();
+    setContinuation('mock', 'sess-existing');
+    insertMessage('new1', { sender: 'Alice', text: 'what did we agree?' });
+    const [prompt] = await runOnce();
+    expect(prompt).not.toContain('<recent-history>');
+  });
+});
+
 async function runPollLoopWithTimeout(provider: MockProvider, signal: AbortSignal, timeoutMs: number): Promise<void> {
   return Promise.race([
     runPollLoop({
