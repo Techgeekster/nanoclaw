@@ -207,7 +207,7 @@ export function createPreCompactHook(assistantName?: string): HookCallback {
  * `.env`; the host-side claude provider (src/providers/claude.ts) passes it
  * into the container. Useful with a 1M-context model variant.
  */
-const CLAUDE_CODE_AUTO_COMPACT_WINDOW = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '165000';
+const CLAUDE_CODE_AUTO_COMPACT_WINDOW = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '140000';
 
 /**
  * Stale-session detection. Matches Claude Code's error text when a
