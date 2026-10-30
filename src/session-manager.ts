@@ -380,13 +380,18 @@ function extractAttachmentFiles(
   let inbox: AnchoredDir | null | undefined;
 
   let changed = false;
+  // Names already used in this message. Discord names every pasted image
+  // `image.png`, so same-named attachments are routine; each gets a numeric
+  // suffix instead of being dropped by the exclusive write below.
+  const usedNames = new Set<string>();
   try {
     for (const att of attachments) {
       if (typeof att.data !== 'string') continue;
 
       const rawName = deriveAttachmentName(att);
-      const filename = isSafeAttachmentName(rawName) ? rawName : `attachment-${Date.now()}`;
-      if (filename !== rawName) {
+      const safeName = isSafeAttachmentName(rawName) ? rawName : `attachment-${Date.now()}`;
+      const filename = uniqueAttachmentName(safeName, usedNames);
+      if (safeName !== rawName) {
         log.warn('Refused unsafe attachment filename, would escape inbox', {
           messageId,
           rawName,
@@ -430,6 +435,20 @@ function extractAttachmentFiles(
   }
 
   return changed ? JSON.stringify(parsed) : contentStr;
+}
+
+/** `image.png` → `image-2.png`, `image-3.png`, … for names already used in this message. */
+function uniqueAttachmentName(name: string, used: Set<string>): string {
+  let candidate = name;
+  if (used.has(candidate)) {
+    const ext = path.extname(name);
+    const base = name.slice(0, name.length - ext.length);
+    let n = 2;
+    while (used.has(`${base}-${n}${ext}`)) n++;
+    candidate = `${base}-${n}${ext}`;
+  }
+  used.add(candidate);
+  return candidate;
 }
 
 /**

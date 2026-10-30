@@ -16,9 +16,11 @@ vi.mock('./config.js', async () => ({
 
 import {
   ABSOLUTE_CEILING_MS,
+  THREAD_IDLE_CEILING_MS,
   CLAIM_STUCK_MS,
   _resetStuckProcessingRowsForTesting,
   decideStuckAction,
+  isLongLivedThread,
   shouldCloseTaskSession,
 } from './host-sweep.js';
 import type { Session } from './types.js';
@@ -62,6 +64,51 @@ describe('decideStuckAction', () => {
       heartbeatAgeMs: JUST_OVER_CEILING_MS,
       ceilingMs: ABSOLUTE_CEILING_MS,
     });
+  });
+
+  it('gives a chat-thread session the 24 h idle ceiling, not 30 min', () => {
+    expect(
+      decideStuckAction({
+        now: BASE,
+        heartbeatMtimeMs: BASE - 10 * ABSOLUTE_CEILING_MS,
+        containerState: null,
+        claims: [],
+        longLivedThread: true,
+      }),
+    ).toEqual({ action: 'ok' });
+  });
+
+  it('kills a chat-thread session idle past 24 h', () => {
+    expect(
+      decideStuckAction({
+        now: BASE,
+        heartbeatMtimeMs: BASE - THREAD_IDLE_CEILING_MS - 1,
+        containerState: null,
+        claims: [],
+        longLivedThread: true,
+      }),
+    ).toEqual({
+      action: 'kill-ceiling',
+      heartbeatAgeMs: THREAD_IDLE_CEILING_MS + 1,
+      ceilingMs: THREAD_IDLE_CEILING_MS,
+    });
+  });
+
+  it('still kills an exempt session whose claimed message went silent', () => {
+    const res = decideStuckAction({
+      now: BASE,
+      heartbeatMtimeMs: BASE - 10 * ABSOLUTE_CEILING_MS,
+      containerState: null,
+      claims: [claim('m1', CLAIM_STUCK_MS + 1)],
+      longLivedThread: true,
+    });
+    expect(res.action).toBe('kill-claim');
+  });
+
+  it('gives chat threads the long ceiling only — not task threads or thread-less sessions', () => {
+    expect(isLongLivedThread('discord:1:2:3')).toBe(true);
+    expect(isLongLivedThread('system:tasks:monitor-pr-259-59b6')).toBe(false);
+    expect(isLongLivedThread(null)).toBe(false);
   });
 
   it('skips the ceiling check when no heartbeat file exists and no fallback is known', () => {
