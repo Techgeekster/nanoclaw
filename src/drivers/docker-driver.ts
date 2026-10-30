@@ -65,6 +65,10 @@ interface InstallWatch {
   attempt: number;
 }
 
+// Bound on waiting for the daemon to finish a removal it already started.
+const REMOVAL_CONFIRM_ATTEMPTS = 20;
+const REMOVAL_CONFIRM_INTERVAL_MS = 250;
+
 export class DockerSessionDriver implements SessionDriver {
   readonly kind = 'docker' as const;
   readonly #cli: Cli;
@@ -588,7 +592,7 @@ class DockerHandle implements SessionHandle {
     try {
       this.cli.run(['rm', '--force', this.name]);
     } catch (error) {
-      this.#confirmRemoved(this.name, error);
+      await this.#confirmRemoved(this.name, error);
     }
     for (const auxiliary of [...this.auxiliaryNames].reverse()) {
       try {
@@ -599,7 +603,7 @@ class DockerHandle implements SessionHandle {
       try {
         this.cli.run(['rm', '--force', auxiliary]);
       } catch (error) {
-        this.#confirmRemoved(auxiliary, error);
+        await this.#confirmRemoved(auxiliary, error);
       }
     }
     if (this.privateNetwork) {
@@ -611,14 +615,29 @@ class DockerHandle implements SessionHandle {
     }
   }
 
-  /** A successful daemon query distinguishes auto-removal from a daemon outage. */
-  #confirmRemoved(name: string, error: unknown): void {
-    try {
-      const remaining = this.cli.run(['ps', '-a', '--filter', `name=^/${name}$`, '--format', '{{.Names}}']);
-      if (!remaining.trim()) return;
-    } catch (probeError) {
-      throw normalizeDockerError(probeError);
+  /**
+   * A successful daemon query distinguishes auto-removal from a daemon outage.
+   * `docker stop` on a `--rm` container starts the daemon's own removal, so the
+   * follow-up `rm --force` fails with "removal already in progress" and `ps -a`
+   * still lists the container for a moment. That is a race, not a failure: wait
+   * briefly for the removal to land before reporting the container as stuck.
+   */
+  async #confirmRemoved(name: string, error: unknown): Promise<void> {
+    for (let attempt = 0; attempt < REMOVAL_CONFIRM_ATTEMPTS; attempt++) {
+      try {
+        const remaining = this.cli.run(['ps', '-a', '--filter', `name=^/${name}$`, '--format', '{{.Names}}']);
+        if (!remaining.trim()) return;
+      } catch (probeError) {
+        throw normalizeDockerError(probeError);
+      }
+      await new Promise((resolve) => setTimeout(resolve, REMOVAL_CONFIRM_INTERVAL_MS));
     }
+    // normalizeDockerError keeps raw runtime text off the seam; log it here so a
+    // teardown failure is diagnosable.
+    log.warn('Container still present after rm --force', {
+      containerName: name,
+      err: error instanceof Error ? error.message : String(error),
+    });
     throw normalizeDockerError(error);
   }
 

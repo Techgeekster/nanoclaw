@@ -13,7 +13,8 @@
  *   tries++. Existing retry machinery does the rest.
  *
  *   If the container IS running:
- *     1. Absolute ceiling: heartbeat age > max(30 min, current_bash_timeout)
+ *     1. Absolute ceiling (24 h for chat-thread sessions, see
+ *        isLongLivedThread): heartbeat age > max(30 min, current_bash_timeout)
  *        → kill. Covers the "alive but silent for 30 min" case. Extended
  *        only while Bash is declared as running longer, honouring the
  *        user's own timeout directive. Kill then resets processing rows.
@@ -45,6 +46,10 @@ import type { ContainerState, InboundMailbox, OutboundMailbox } from './mailbox/
 // been touched in this long, the container is either stuck or doing genuinely
 // nothing — kill and restart on the next inbound.
 export const ABSOLUTE_CEILING_MS = 30 * 60 * 1000;
+// Idle ceiling for chat-thread sessions, which legitimately sit quiet for hours
+// while sub-agents wait on a PR / CI / the user. Bounds the containers (~0.5 GB
+// each) a forgotten thread can hold.
+export const THREAD_IDLE_CEILING_MS = 24 * 60 * 60 * 1000;
 // Stuck tolerance window applied per 'processing' claim — "did we see any
 // signs of life since this message was claimed?"
 export const CLAIM_STUCK_MS = 60 * 1000;
@@ -67,8 +72,16 @@ export function decideStuckAction(args: {
   containerStartedAtMs?: number; // fallback when heartbeat file absent
   containerState: ContainerState | null;
   claims: Array<{ messageId: string; statusChanged: string }>;
+  /**
+   * Use the long thread idle ceiling instead of the 30-minute one. A
+   * chat-thread container waiting on the user (or on a CI run / PR merge)
+   * emits no SDK events and so no heartbeat; killing it early destroys the
+   * sub-agents the thread is waiting on. Real hangs are still caught by the
+   * claim-stuck check below.
+   */
+  longLivedThread?: boolean;
 }): StuckDecision {
-  const { now, heartbeatMtimeMs, containerStartedAtMs, containerState, claims } = args;
+  const { now, heartbeatMtimeMs, containerStartedAtMs, containerState, claims, longLivedThread } = args;
   const declaredBashMs = bashTimeoutMs(containerState);
 
   // Ceiling check prefers the heartbeat file's mtime. A freshly-spawned
@@ -90,7 +103,7 @@ export function decideStuckAction(args: {
   const effectiveHeartbeatMs = heartbeatMtimeMs !== 0 ? heartbeatMtimeMs : (containerStartedAtMs ?? 0);
   if (effectiveHeartbeatMs !== 0) {
     const heartbeatAge = now - effectiveHeartbeatMs;
-    const ceiling = Math.max(ABSOLUTE_CEILING_MS, declaredBashMs ?? 0);
+    const ceiling = Math.max(longLivedThread ? THREAD_IDLE_CEILING_MS : ABSOLUTE_CEILING_MS, declaredBashMs ?? 0);
     if (heartbeatAge > ceiling) {
       return { action: 'kill-ceiling', heartbeatAgeMs: heartbeatAge, ceilingMs: ceiling };
     }
@@ -107,6 +120,16 @@ export function decideStuckAction(args: {
   }
 
   return { action: 'ok' };
+}
+
+/**
+ * Chat-thread sessions (a Discord/Slack thread bound to its own session) are
+ * long-lived by design: the thread owns its sub-agents until the work is done
+ * or the operator clears them, so they get THREAD_IDLE_CEILING_MS. Task sessions
+ * and thread-less sessions keep the 30-minute ceiling.
+ */
+export function isLongLivedThread(threadId: string | null): boolean {
+  return threadId !== null && !isTaskThread(threadId);
 }
 
 /** A per-task session with no live tasks and no running container is spent → close it. */
@@ -254,6 +277,7 @@ async function enforceRunningContainerSla(
     containerStartedAtMs: getContainerStartedAtMs(session.id),
     containerState: outDb.getContainerState(),
     claims: gatedClaims,
+    longLivedThread: isLongLivedThread(session.thread_id),
   });
 
   if (decision.action === 'ok') return;

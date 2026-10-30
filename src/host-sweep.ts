@@ -25,9 +25,11 @@ import { sessionKey } from './reconcile.js';
 
 export {
   ABSOLUTE_CEILING_MS,
+  THREAD_IDLE_CEILING_MS,
   CLAIM_STUCK_MS,
   _resetStuckProcessingRowsForTesting,
   decideStuckAction,
+  isLongLivedThread,
   shouldCloseTaskSession,
   type StuckDecision,
 } from './reconcile-session.js';
