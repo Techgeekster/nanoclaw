@@ -541,12 +541,16 @@ async function deliverMessage(
     msg.threadId ??
     (msg.channelType === 'agent' ? null : await resolveTaskOriginThread(session, msg.channelType, msg.platformId));
 
+  // Agent-asked questions keep their own markup; host-built cards never come
+  // through here, so only they get a channel's card-text escape.
+  const deliveredContent =
+    content.type === 'ask_question' ? JSON.stringify({ ...content, fromAgent: true }) : msg.content;
   const platformMsgId = await deliveryAdapter.deliver(
     msg.channelType,
     msg.platformId,
     deliverThreadId,
     msg.kind,
-    msg.content,
+    deliveredContent,
     files,
     deliverInstance,
   );

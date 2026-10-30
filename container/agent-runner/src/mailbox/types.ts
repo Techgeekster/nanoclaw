@@ -1,4 +1,5 @@
 import type {
+  DeliveryRecord,
   DestinationRecord,
   InboundRecord,
   OutboundRecord,
@@ -56,6 +57,11 @@ export interface MailboxOperations {
   getUndeliveredMessages(): OutboundMessage[];
   /** Newest already-handled chat rows in each direction (newest first), for rebuilding context after a fresh start. */
   getRecentHistory(limit: number): { inbound: InboundMessage[]; outbound: OutboundMessage[] };
+  /**
+   * The host's delivery outcome for an outbound message, null until it has one.
+   * Optional: without it, a question whose card fails to post waits out its timeout.
+   */
+  getDeliveryStatus?(messageOutId: string): DeliveryRecord['status'] | null;
   getState(key: string): StateValue | undefined;
   setState(key: string, value: string): void;
   deleteState(key: string): void;

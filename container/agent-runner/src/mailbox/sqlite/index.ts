@@ -1,7 +1,7 @@
 import {
   closeSessionDb,
-  getInboundDb,
   getOutboundDb,
+  readInbound,
   sqliteClearContainerToolInFlight,
   sqliteClearStaleProcessingAcks,
   sqliteSetContainerToolInFlight,
@@ -13,6 +13,7 @@ import {
   sqliteFindCliResponse,
   sqliteFindQuestionResponse,
   sqliteGetAllDestinations,
+  sqliteGetDeliveryStatus,
   sqliteGetMessageIn,
   sqliteGetMessageIdBySeq,
   sqliteGetPendingMessages,
@@ -183,13 +184,16 @@ export class SqliteAgentMailbox implements AgentMailbox {
   }
 
   getLatestInboundRoute(channelType: string, platformId: string) {
-    const row = getInboundDb()
-      .prepare(
-        `SELECT id, thread_id FROM messages_in
-         WHERE channel_type = ? AND platform_id = ?
-         ORDER BY seq DESC LIMIT 1`,
-      )
-      .get(channelType, platformId) as { id: string; thread_id: string | null } | undefined;
+    const row = readInbound(
+      (db) =>
+        db
+          .prepare(
+            `SELECT id, thread_id FROM messages_in
+             WHERE channel_type = ? AND platform_id = ?
+             ORDER BY seq DESC LIMIT 1`,
+          )
+          .get(channelType, platformId) as { id: string; thread_id: string | null } | undefined,
+    );
     return row ? { threadId: row.thread_id, inReplyTo: stripAgentGroupSuffix(row.id, this.agentGroupId) } : null;
   }
 
@@ -199,14 +203,17 @@ export class SqliteAgentMailbox implements AgentMailbox {
 
   getRecentHistory(limit: number): { inbound: InboundMessage[]; outbound: OutboundMessage[] } {
     // Completed rows only: pending/processing rows are about to be in the prompt itself.
-    const inboundRows = getInboundDb()
-      .prepare(
-        `SELECT * FROM messages_in
-         WHERE status = 'completed' AND kind IN ('chat', 'chat-sdk')
-           AND (channel_type IS NULL OR channel_type != 'session-echo')
-         ORDER BY seq DESC LIMIT ?`,
-      )
-      .all(limit) as MessageInRow[];
+    const inboundRows = readInbound(
+      (db) =>
+        db
+          .prepare(
+            `SELECT * FROM messages_in
+             WHERE status = 'completed' AND kind IN ('chat', 'chat-sdk')
+               AND (channel_type IS NULL OR channel_type != 'session-echo')
+             ORDER BY seq DESC LIMIT ?`,
+          )
+          .all(limit) as MessageInRow[],
+    );
     const outboundRows = getOutboundDb()
       .prepare(`SELECT * FROM messages_out WHERE kind = 'chat' ORDER BY seq DESC LIMIT ?`)
       .all(limit) as MessageOutRow[];
@@ -217,6 +224,10 @@ export class SqliteAgentMailbox implements AgentMailbox {
       }),
       outbound: outboundRows.map(outboundMessage),
     };
+  }
+
+  getDeliveryStatus(messageOutId: string) {
+    return sqliteGetDeliveryStatus(messageOutId);
   }
 
   getState(key: string) {
