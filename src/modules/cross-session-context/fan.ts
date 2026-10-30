@@ -215,6 +215,8 @@ interface EchoFanInput {
   text: string;
   sender: string;
   senderId: string | null;
+  /** The agent's own delivered message: the runner renders its sender as "you". */
+  self?: boolean;
 }
 
 /**
@@ -256,6 +258,7 @@ async function fanEcho(input: EchoFanInput): Promise<number> {
     text: truncateEchoText(input.text),
     sender: input.sender,
     senderId: input.senderId,
+    ...(input.self ? { self: true } : {}),
     echo: { surface: input.surface, label: input.label },
   });
 
@@ -415,6 +418,7 @@ async function fanOutbound(
       text: parsed.text,
       sender: agentGroup.name,
       senderId: agentGroup.id,
+      self: true,
     });
   } catch (err) {
     log.warn('Outbound echo fan failed', { sessionId: session.id, messageId: msg.id, err });
