@@ -55,6 +55,8 @@ export interface MailboxOperations {
   getRoutingBySeq(sequence: number): SessionRouting | null;
   getLatestInboundRoute(channelType: string, platformId: string): { threadId: string | null; inReplyTo: string } | null;
   getUndeliveredMessages(): OutboundMessage[];
+  /** Newest already-handled chat rows in each direction (newest first), for rebuilding context after a fresh start. */
+  getRecentHistory(limit: number): { inbound: InboundMessage[]; outbound: OutboundMessage[] };
   /**
    * The host's delivery outcome for an outbound message, null until it has one.
    * Optional: without it, a question whose card fails to post waits out its timeout.

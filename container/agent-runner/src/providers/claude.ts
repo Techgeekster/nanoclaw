@@ -174,9 +174,15 @@ const REAL_CLOCK = { now: () => Date.now() };
 
 // The PreCompact hook is provider-originated: the SDK raises it from inside
 // the query, and the archive it triggers reads the SDK's own transcript.
-function createPreCompactHook(assistantName?: string): HookCallback {
+export function createPreCompactHook(assistantName?: string): HookCallback {
   return async (input) => {
     const preCompact = input as PreCompactHookInput;
+    // Sub-agents compact on their own context and raise this same hook. Their
+    // completion never reaches the main stream, so announcing it would post a
+    // "Compacting" notice with no matching "resumed" (21 in 40 minutes with five
+    // parallel agents) and archive/arm the nudge for a compaction the main
+    // conversation did not undergo. `agent_id` is set only inside a sub-agent.
+    if (preCompact.agent_id) return {};
     archiveClaudeTranscript(
       {
         transcriptPath: preCompact.transcript_path,
@@ -201,7 +207,7 @@ function createPreCompactHook(assistantName?: string): HookCallback {
  * `.env`; the host-side claude provider (src/providers/claude.ts) passes it
  * into the container. Useful with a 1M-context model variant.
  */
-const CLAUDE_CODE_AUTO_COMPACT_WINDOW = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '165000';
+const CLAUDE_CODE_AUTO_COMPACT_WINDOW = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '140000';
 
 /**
  * Stale-session detection. Matches Claude Code's error text when a
@@ -233,6 +239,9 @@ export class ClaudeProvider implements AgentProvider {
     this.env = {
       ...(options.env ?? {}),
       CLAUDE_CODE_AUTO_COMPACT_WINDOW,
+      // Hard pin: sub-agents run on Sonnet whatever model the Agent call asks for
+      // (Opus sub-agents were ~70% of token spend). Operator override via env.
+      CLAUDE_CODE_SUBAGENT_MODEL: process.env.CLAUDE_CODE_SUBAGENT_MODEL || 'claude-sonnet-5',
     };
   }
 
