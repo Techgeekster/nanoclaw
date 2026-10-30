@@ -815,3 +815,20 @@ it('does not report successful teardown when the Docker daemon refuses removal',
   cli.responses.unshift({ match: /^(stop|rm|ps) /, throws: new Error('Cannot connect to the Docker daemon') });
   await expect(handle.stop('shutdown')).rejects.toMatchObject({ kind: 'runtime-unavailable' });
 });
+
+it('waits for a removal the daemon already started instead of reporting it stuck', async () => {
+  const handle = await driver().prepare(fixtureSpec());
+  const listed = { match: /^ps -a /, output: 'still-here' };
+  cli.responses.unshift({ match: /^rm /, throws: new Error('removal of container x is already in progress') }, listed);
+  const stopped = handle.stop('shutdown');
+  setTimeout(() => cli.responses.splice(cli.responses.indexOf(listed), 1), 100);
+  await expect(stopped).resolves.toBeUndefined();
+  expect(cli.joined().filter((c) => c.startsWith('ps -a ')).length).toBeGreaterThan(1);
+});
+
+it('does not wait on a removal the daemon refused', async () => {
+  const handle = await driver().prepare(fixtureSpec());
+  cli.responses.unshift({ match: /^rm /, throws: new Error('conflict') }, { match: /^ps -a /, output: 'still-here' });
+  await expect(handle.stop('shutdown')).rejects.toBeDefined();
+  expect(cli.joined().filter((c) => c.startsWith('ps -a '))).toHaveLength(1);
+});

@@ -94,7 +94,15 @@ describe('real detector probe', () => {
     };
     const probePnpm = Object.keys(mirrored).length ? { pnpm: mirrored } : {};
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ type: 'module', packageManager, ...probePnpm }));
-    fs.writeFileSync(path.join(root, 'pnpm-workspace.yaml'), 'onlyBuiltDependencies: [esbuild]\n');
+    // Patches may also live in pnpm-workspace.yaml (a fork's local patch does); same rule.
+    const workspacePatches = [
+      ...fs.readFileSync('pnpm-workspace.yaml', 'utf8').matchAll(/^ {2}'?([^'\s]+@[^'\s]+)'?: (patches\/\S+)$/gm),
+    ].map(([, dep, file]) => `  '${dep}': ${path.resolve(file)}\n`);
+    fs.writeFileSync(
+      path.join(root, 'pnpm-workspace.yaml'),
+      'onlyBuiltDependencies: [esbuild]\n' +
+        (workspacePatches.length ? `patchedDependencies:\n${workspacePatches.join('')}` : ''),
+    );
     fs.symlinkSync(path.resolve('node_modules'), path.join(root, 'node_modules'));
     fs.mkdirSync(path.join(root, 'groups', 'repro'), { recursive: true });
     fs.writeFileSync(

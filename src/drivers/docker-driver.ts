@@ -642,16 +642,19 @@ class DockerHandle implements SessionHandle {
    * follow-up `rm --force` fails with "removal already in progress" and `ps -a`
    * still lists the container for a moment. That is a race, not a failure: wait
    * briefly for the removal to land before reporting the container as stuck.
+   * Any other refusal is not going to resolve itself, so it is not waited on.
    */
   async #confirmRemoved(name: string, error: unknown): Promise<void> {
-    for (let attempt = 0; attempt < REMOVAL_CONFIRM_ATTEMPTS; attempt++) {
+    const removalInProgress = /removal .*already in progress/i.test(error instanceof Error ? error.message : '');
+    const attempts = removalInProgress ? REMOVAL_CONFIRM_ATTEMPTS : 1;
+    for (let attempt = 0; attempt < attempts; attempt++) {
       try {
         const remaining = this.cli.run(['ps', '-a', '--filter', `name=^/${name}$`, '--format', '{{.Names}}']);
         if (!remaining.trim()) return;
       } catch (probeError) {
         throw normalizeDockerError(probeError);
       }
-      await new Promise((resolve) => setTimeout(resolve, REMOVAL_CONFIRM_INTERVAL_MS));
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, REMOVAL_CONFIRM_INTERVAL_MS));
     }
     // normalizeDockerError keeps raw runtime text off the seam; log it here so a
     // teardown failure is diagnosable.
