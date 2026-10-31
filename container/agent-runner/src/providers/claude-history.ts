@@ -211,7 +211,10 @@ function formatTranscriptMarkdown(
 /**
  * Before resuming, drop a transcript that has grown too large or too old to
  * cold-resume within the host's idle ceiling. Archives what it can, moves the
- * `.jsonl` aside, and returns the reason; null keeps resuming.
+ * `.jsonl` aside, and returns the reason; null keeps resuming. A transcript
+ * that no longer exists also returns a reason: Claude Code deletes idle ones
+ * after its cleanup period, and resuming would fail the turn with
+ * "No conversation found".
  */
 export function rotateClaudeContinuation(
   input: ClaudeContinuationRotationInput,
@@ -221,7 +224,7 @@ export function rotateClaudeContinuation(
     path.join(claudeConfigDirectory(), 'projects'),
     `${input.continuation}.jsonl`,
   );
-  if (!transcriptPath) return null;
+  if (!transcriptPath) return 'transcript no longer exists';
 
   try {
     const size = fs.statSync(transcriptPath).size;

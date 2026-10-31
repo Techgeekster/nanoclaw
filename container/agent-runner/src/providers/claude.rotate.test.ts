@@ -65,6 +65,22 @@ describe('claude maybeRotateContinuation', () => {
     expect(fs.existsSync(p)).toBe(true);
   });
 
+  it('drops a continuation whose transcript no longer exists', () => {
+    writeTranscript('sess-other', 4096);
+    const provider = createProvider('claude');
+    expect(provider.maybeRotateContinuation!('sess-expired', CWD)).toBe('transcript no longer exists');
+  });
+
+  it('finds a transcript stored under a different project directory', () => {
+    const p = writeTranscript('sess-elsewhere', 4096);
+    const moved = path.join(tmp, '.claude', 'projects', '-workspace-agent-clones-repo', 'sess-elsewhere.jsonl');
+    fs.mkdirSync(path.dirname(moved), { recursive: true });
+    fs.renameSync(p, moved);
+    const provider = createProvider('claude');
+    expect(provider.maybeRotateContinuation!('sess-elsewhere', CWD)).toBeNull();
+    expect(fs.existsSync(moved)).toBe(true);
+  });
+
   it('rotates an oversized transcript (returns reason, moves the .jsonl aside)', () => {
     process.env.CLAUDE_TRANSCRIPT_ROTATE_BYTES = String(64 * 1024);
     const p = writeTranscript('sess-big', 200 * 1024);
@@ -125,10 +141,5 @@ describe('claude maybeRotateContinuation', () => {
     writeTranscript('sess-old', 2048, old);
     const provider = createProvider('claude');
     expect(provider.maybeRotateContinuation!('sess-old', CWD)).toContain('d');
-  });
-
-  it('returns null for an unknown session id', () => {
-    const provider = createProvider('claude');
-    expect(provider.maybeRotateContinuation!('does-not-exist', CWD)).toBeNull();
   });
 });
