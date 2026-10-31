@@ -59,6 +59,7 @@ export type Task = TaskWrite;
 export interface TaskUpdate {
   prompt?: string;
   script?: string | null;
+  model?: string | null;
   recurrence?: string | null;
   processAfter?: string;
 }

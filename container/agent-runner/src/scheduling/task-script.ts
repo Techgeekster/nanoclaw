@@ -23,6 +23,20 @@ function log(msg: string): void {
   console.error(`[task-script] ${msg}`);
 }
 
+/** The model a batch's task asked for with --model, if any. */
+export function taskRunModel(messages: MessageInRow[]): string | undefined {
+  for (const msg of messages) {
+    if (msg.kind !== 'task') continue;
+    try {
+      const { model } = JSON.parse(msg.content) as { model?: unknown };
+      if (typeof model === 'string' && model) return model;
+    } catch {
+      // Plain-string content predates the JSON envelope and carries no model.
+    }
+  }
+  return undefined;
+}
+
 export async function runScript(
   script: string,
   taskId: string,

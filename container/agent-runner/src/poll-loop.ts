@@ -220,11 +220,13 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
     // falls back to `normalMessages`, and no gating happens.
     let keep: MessageInRow[] = normalMessages;
     let skipped: Array<{ id: string; reason: string }> = [];
+    let taskModel: string | undefined;
     // MODULE-HOOK:scheduling-pre-task:start
-    const { applyPreTaskScripts } = await import('./scheduling/task-script.js');
+    const { applyPreTaskScripts, taskRunModel } = await import('./scheduling/task-script.js');
     const preTask = await applyPreTaskScripts(normalMessages);
     keep = preTask.keep;
     skipped = preTask.skipped;
+    taskModel = taskRunModel(keep);
     if (skipped.length > 0) {
       markScriptSkipped(skipped);
       log(`Pre-task script skipped ${skipped.length} task(s): ${skipped.map((s) => s.id).join(', ')}`);
@@ -259,6 +261,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
       prompt,
       continuation,
       cwd: config.cwd,
+      model: taskModel,
       systemContext: config.systemContext,
     });
     // Process the query while concurrently polling for new messages

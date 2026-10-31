@@ -20,6 +20,7 @@ import {
   MAX_DAILY_FIRES,
   parseProcessAfter,
   prepareScheduledTask,
+  validateTaskModel,
   type ScheduledTaskRow,
   validateRecurrence,
 } from '../../modules/scheduling/create.js';
@@ -117,6 +118,7 @@ function toOutput(session: ScopedSession, row: TaskRow) {
     recurrence: row.recurrence,
     prompt: content.prompt.length > 120 ? content.prompt.slice(0, 117) + '...' : content.prompt,
     has_script: content.script ? 1 : 0,
+    model: content.model,
     origin_session_id: content.originSessionId, // which session created the task (null for CLI-created)
     created_at: row.timestamp,
     tries: row.tries,
@@ -144,12 +146,14 @@ async function createTask(args: Record<string, unknown>, ctx: CallerContext) {
   if (!prompt) throw new Error('--prompt is required');
   const recurrence = normalizeNullableString(args.recurrence) ?? null;
   const script = normalizeNullableString(args.script) ?? null;
+  const model = normalizeNullableString(args.model) ?? null;
   const prepared = prepareScheduledTask({
     name: str(args.name),
     prompt,
     recurrence,
     processAfter: str(args.process_after),
     script,
+    model,
     dangerouslyOverrideRecurrenceLimit: bool(args.dangerously_override_recurrence_limit),
     timezone: await resolveGroupTimezone(group),
   });
@@ -350,6 +354,11 @@ async function updateTaskCommand(args: Record<string, unknown>, ctx: CallerConte
     update.recurrence = recurrence;
   }
   if (script !== undefined) update.script = script;
+  const model = normalizeNullableString(args.model);
+  if (model !== undefined) {
+    validateTaskModel(model);
+    update.model = model;
+  }
   const fields = Object.keys(update);
   if (fields.length === 0) throw new Error('nothing to update');
 
@@ -520,6 +529,11 @@ registerResource({
           description: 'Pre-task gate script (bash) — see the --script contract above.',
         },
         {
+          name: 'model',
+          type: 'string',
+          description: 'Model for this task: haiku, sonnet or opus. Omit to use the group model.',
+        },
+        {
           name: 'group',
           type: 'string',
           description: 'Agent group id (host callers; auto-filled to your own group inside a container).',
@@ -575,6 +589,11 @@ registerResource({
             'Schedule more than 4 fires/day anyway. Only after the user explicitly confirmed they understand the quota/token cost and you agree it is right.',
         },
         { name: 'script', type: 'string', description: 'New pre-task script; "null"/"none" removes it.' },
+        {
+          name: 'model',
+          type: 'string',
+          description: 'New model: haiku, sonnet or opus; "null"/"none" returns to the group model.',
+        },
         {
           name: 'group',
           type: 'string',

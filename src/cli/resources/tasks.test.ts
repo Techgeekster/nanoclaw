@@ -195,6 +195,45 @@ describe('tasks CLI resource', () => {
     expect(overridden.ok).toBe(true);
   });
 
+  it('stores a task model, updates it, and refuses anything else', async () => {
+    const created = await dispatch(
+      {
+        id: 'm1',
+        command: 'tasks-create',
+        args: { prompt: 'x', name: 'hard', recurrence: '0 9 * * *', model: 'opus' },
+      },
+      agentCtx(),
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const data = created.data as { series_id: string; model: string };
+    expect(data.model).toBe('opus');
+
+    const banned = await dispatch(
+      {
+        id: 'm2',
+        command: 'tasks-create',
+        args: { prompt: 'x', name: 'nope', recurrence: '0 9 * * *', model: 'fable' },
+      },
+      agentCtx(),
+    );
+    expect(banned.ok).toBe(false);
+
+    const bannedUpdate = await dispatch(
+      { id: 'm3', command: 'tasks-update', args: { id: data.series_id, model: 'claude-fable-5' } },
+      agentCtx(),
+    );
+    expect(bannedUpdate.ok).toBe(false);
+
+    const updated = await dispatch(
+      { id: 'm4', command: 'tasks-update', args: { id: data.series_id, model: 'haiku' } },
+      agentCtx(),
+    );
+    expect(updated.ok).toBe(true);
+    const got = await dispatch({ id: 'm5', command: 'tasks-get', args: { id: data.series_id } }, agentCtx());
+    expect(got.ok && (got.data as { model: string }).model).toBe('haiku');
+  });
+
   it('a --script gate exempts frequent recurrence — the sanctioned monitor pattern', async () => {
     const scripted = await dispatch(
       {

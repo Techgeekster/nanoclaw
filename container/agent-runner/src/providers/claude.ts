@@ -318,7 +318,7 @@ export class ClaudeProvider implements AgentProvider {
         // turns them into throttled `activity` and nothing else.
         includePartialMessages: true,
         env: this.env,
-        model: this.inference.model,
+        model: input.model ?? this.inference.model,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         effort: this.inference.effort as any,
         permissionMode: this.executionPolicy.permissionMode,

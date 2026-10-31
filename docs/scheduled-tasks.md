@@ -75,6 +75,10 @@ ncl tasks run <task-id> --group <agent-group-id>
 `run` also works while a task is paused. It queues one extra run and does not
 resume the recurring schedule.
 
+## Choose a task's model
+
+Pass `--model haiku`, `sonnet` or `opus` to `ncl tasks create` or `ncl tasks update`. Recurring tasks keep it on every run. Without it, the task uses the group's model. `--model none` on update returns to the group's model. Claude tasks only; other providers ignore it.
+
 ## Script gates
 
 A task can run a Bash script before waking the agent. This is useful for

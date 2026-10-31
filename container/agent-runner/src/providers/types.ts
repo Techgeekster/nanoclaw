@@ -107,6 +107,9 @@ export interface QueryInput {
   /** Working directory inside the container. */
   cwd: string;
 
+  /** Model for this query, replacing the configured one. Set by a task's --model. */
+  model?: string;
+
   /**
    * System context to inject. Providers translate this into whatever their
    * SDK expects (preset append, full system prompt, per-turn injection…).

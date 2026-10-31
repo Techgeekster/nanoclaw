@@ -81,3 +81,22 @@ describe('flag-level settings: claude.ai sync opt-out always, fastMode when enab
     expect(lastOptions?.settingSources).toEqual(['project', 'user', 'local']);
   });
 });
+
+describe('per-query model', () => {
+  async function queryModel(options: ProviderOptions, model?: string): Promise<unknown> {
+    const provider = createProvider('claude', options);
+    provider.registerMemorySessionHook(MEMORY_SESSION_HOOK);
+    for await (const _ of provider.query({ prompt: 'hi', cwd: tmp, model }).events) {
+      /* drain */
+    }
+    return lastOptions?.model;
+  }
+
+  it('replaces the configured model for that query', async () => {
+    expect(await queryModel({ model: 'claude-sonnet-5' }, 'opus')).toBe('opus');
+  });
+
+  it('keeps the configured model when none is passed', async () => {
+    expect(await queryModel({ model: 'claude-sonnet-5' })).toBe('claude-sonnet-5');
+  });
+});

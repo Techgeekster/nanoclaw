@@ -8,6 +8,9 @@ import { parseZonedToUtc } from '../../timezone.js';
 
 export const MAX_DAILY_FIRES = 4;
 
+/** Models a task may name with --model. Fable is deliberately not one of them. */
+export const TASK_MODELS = ['haiku', 'sonnet', 'opus'];
+
 const RECURRENCE_LIMIT_WARNING =
   'Warning: this task has not been scheduled. Frequent running tasks consume the ' +
   "user's subscription quota or unnecessarily use tokens and can cause the user's " +
@@ -28,6 +31,7 @@ export interface PreparedScheduledTask {
   recurrence: string | null;
   script: string | null;
   processAfter: string;
+  model?: string | null;
 }
 
 export type ScheduledTaskRow = TaskRecord;
@@ -94,6 +98,12 @@ export function enforceRecurrenceLimit(
   if (fires > MAX_DAILY_FIRES) throw new Error(RECURRENCE_LIMIT_WARNING);
 }
 
+export function validateTaskModel(value: string | null | undefined): void {
+  if (value && !TASK_MODELS.includes(value)) {
+    throw new Error(`invalid --model: ${value} (use ${TASK_MODELS.join(', ')})`);
+  }
+}
+
 /**
  * Validate task semantics and derive its first run without writing anything.
  * `timezone` grounds wall-clock interpretation (cron grid, naive
@@ -106,6 +116,7 @@ export function prepareScheduledTask(input: {
   recurrence?: string | null;
   processAfter?: string;
   script?: string | null;
+  model?: string | null;
   dangerouslyOverrideRecurrenceLimit?: boolean;
   timezone?: string;
 }): PreparedScheduledTask {
@@ -114,6 +125,7 @@ export function prepareScheduledTask(input: {
   const script = input.script ?? null;
   const tz = input.timezone ?? TIMEZONE;
   validateRecurrence(recurrence, tz);
+  validateTaskModel(input.model);
   enforceRecurrenceLimit(recurrence, input.dangerouslyOverrideRecurrenceLimit === true, script !== null, tz);
 
   let processAfter: string;
@@ -125,7 +137,7 @@ export function prepareScheduledTask(input: {
     processAfter = parseProcessAfter(input.processAfter, tz);
   }
 
-  return { name: input.name, prompt: input.prompt, recurrence, script, processAfter };
+  return { name: input.name, prompt: input.prompt, recurrence, script, processAfter, model: input.model };
 }
 
 /** Persist a prepared task through NanoClaw's single task/session representation. */
@@ -147,6 +159,7 @@ export async function createScheduledTask(
         prompt: task.prompt,
         script: task.script,
         originSessionId: options?.originSessionId ?? null,
+        model: task.model ?? undefined,
       }),
       status: options?.status ?? 'pending',
     });
