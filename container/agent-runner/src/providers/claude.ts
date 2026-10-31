@@ -115,13 +115,19 @@ class MessageStream {
   }
 }
 
+/** Whether a tool call starts a sub-agent on a banned model (Agent, or its older name Task). */
+function isBannedSubagentCall(toolName: string, toolInput: Record<string, unknown> | undefined): boolean {
+  if (toolName !== 'Agent' && toolName !== 'Task') return false;
+  return typeof toolInput?.model === 'string' && /fable/i.test(toolInput.model);
+}
+
 /**
  * PreToolUse hook: record the current tool + its declared timeout so the host
  * sweep can widen its stuck tolerance while Bash is running a long-declared
  * script. Defense-in-depth: if SDK_DISALLOWED_TOOLS slips through somehow,
  * block the call here instead of letting the agent hang.
  */
-const preToolUseHook: HookCallback = async (input) => {
+export const preToolUseHook: HookCallback = async (input) => {
   const i = input as { tool_name?: string; tool_input?: Record<string, unknown> };
   const toolName = i.tool_name ?? '';
   if (SDK_DISALLOWED_TOOLS.includes(toolName)) {
@@ -129,6 +135,17 @@ const preToolUseHook: HookCallback = async (input) => {
       decision: 'block',
       stopReason: `Tool '${toolName}' is not available in this environment — use the nanoclaw equivalent.`,
     } as unknown as ReturnType<HookCallback>;
+  }
+  // Fable is banned for sub-agents. Deny rather than swap the model, so the
+  // caller sees why and can re-issue the call on a model it actually chose.
+  if (isBannedSubagentCall(toolName, i.tool_input)) {
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: 'Fable is banned for sub-agents. Use "haiku", "sonnet" or "opus".',
+      },
+    };
   }
   // Bash exposes its timeout via the tool_input.timeout field (ms). Any other
   // tool: no declared timeout.
@@ -239,8 +256,8 @@ export class ClaudeProvider implements AgentProvider {
     this.env = {
       ...(options.env ?? {}),
       CLAUDE_CODE_AUTO_COMPACT_WINDOW,
-      // Hard pin: sub-agents run on Sonnet whatever model the Agent call asks for
-      // (Opus sub-agents were ~70% of token spend). Operator override via env.
+      // Default only: since Claude Code 2.1.251 a `model` on the Agent call wins.
+      // Sonnet covers calls that name none. Operator override via env.
       CLAUDE_CODE_SUBAGENT_MODEL: process.env.CLAUDE_CODE_SUBAGENT_MODEL || 'claude-sonnet-5',
     };
   }
