@@ -25,15 +25,11 @@ course marketing, generic career content) stays exactly where it is.
 
 0. **Never run this without a specific email address to act on.** Same
    requirement as `email-organizer`'s rule 0: if the triggering request
-   doesn't name the address, ask before doing anything else, then confirm
-   the connected mailbox actually matches:
-
-   ```bash
-   # Gmail
-   curl -s "https://gmail.googleapis.com/gmail/v1/users/me/profile"   # check emailAddress
-   # Microsoft Graph / Outlook
-   curl -s "https://graph.microsoft.com/v1.0/me"                       # check mail / userPrincipalName
-   ```
+   doesn't name the address, ask before doing anything else, then target
+   and confirm that mailbox exactly the way `email-organizer`'s rule 0
+   describes — the connection header plus the `Delivered-To`/`To` header
+   of one message from this skill's scope folder. Never call the profile
+   endpoints (`users/me/profile`, Graph `/me`); the gateway denies them.
 
 1. **Never delete.** Not `messages.delete`, not trash/Deleted Items either
    — a "trash" folder is a timed deletion queue, not an archive. The only

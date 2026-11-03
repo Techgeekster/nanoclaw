@@ -27,18 +27,34 @@ user-set policy — don't improvise on them.
    account the API defaults to" is the right one. If the triggering
    request (a chat message or a scheduled task prompt) doesn't name the
    address, ask which one before doing anything else. Once you have it,
-   confirm the connected mailbox actually matches before touching
-   anything:
+   target that mailbox explicitly — with OneCLI, send the
+   `x-onecli-connection-id` header for the gateway connection labeled with
+   that address on every request — and confirm it's the right mailbox
+   before touching anything.
+
+   Don't use the profile endpoints (`users/me/profile`, Graph `/me`) for
+   this: they aren't part of the mail grant and the gateway denies them.
+   Instead read the recipient header of one message in the target scope,
+   using the same message-read calls the rest of this skill already
+   relies on:
 
    ```bash
-   # Gmail
-   curl -s "https://gmail.googleapis.com/gmail/v1/users/me/profile"   # check emailAddress
-   # Microsoft Graph / Outlook
-   curl -s "https://graph.microsoft.com/v1.0/me"                       # check mail / userPrincipalName
+   # Gmail — one message ID from the scope, then its Delivered-To header
+   curl -s -H "x-onecli-connection-id: $CONN" \
+     "https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=INBOX&maxResults=1"
+   curl -s -H "x-onecli-connection-id: $CONN" \
+     "https://gmail.googleapis.com/gmail/v1/users/me/messages/$ID?format=metadata&metadataHeaders=Delivered-To&metadataHeaders=To"
+   # Microsoft Graph / Outlook — toRecipients of one message in the scope
+   curl -s "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?\$top=1&\$select=toRecipients"
    ```
 
-   If it doesn't match the address you were given, stop and tell the user
-   instead of proceeding against the wrong mailbox.
+   (For a folder-scoped run, list from that folder/label instead of the
+   Inbox.) If `Delivered-To` (or `To`, when `Delivered-To` is missing)
+   matches the address you were given, proceed. If it names a different
+   address, stop and tell the user instead of proceeding against the wrong
+   mailbox. If the scope is empty, there's nothing to organize — report
+   that and stop. Only treat it as a failure if these message calls
+   themselves are denied.
 
 1. **Never delete.** Not `messages.delete`, not `messages.trash`/moving to
    Trash or Deleted Items either — a "trash" folder is a timed deletion
