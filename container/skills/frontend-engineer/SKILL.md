@@ -84,18 +84,29 @@ sleep 3
 Then use `agent-browser` to verify:
 
 ```bash
-# Desktop (1280px)
 agent-browser open http://localhost:3000
-agent-browser screenshot desktop.png
 
-# Tablet (768px)
-agent-browser eval "window.resizeTo(768, 1024)"
-agent-browser screenshot tablet.png
+# Desktop LANDSCAPE (1440x900) - light, then dark
+agent-browser set viewport 1440 900
+agent-browser set media light
+agent-browser screenshot desktop-light.png
+agent-browser set media dark
+agent-browser screenshot desktop-dark.png
+
+# Tablet (768x1024) - dark
+agent-browser set viewport 768 1024
+agent-browser screenshot tablet-dark.png
+
+# Mobile (390x844) - dark
+agent-browser set viewport 390 844
+agent-browser screenshot mobile-dark.png
 
 # Console output and uncaught page errors
 agent-browser console
 agent-browser errors
 ```
+
+**Required screenshot set, every time:** desktop landscape in light mode, desktop landscape in dark mode, tablet in dark mode, and mobile in dark mode (four screenshots). Desktop must be landscape (width > height), never a portrait or squeezed window. Look at each image, not just that it was saved. If a viewport/media command differs in your `agent-browser` version, check `agent-browser --help` rather than skipping a view. If the site has no dark theme, say so in your report and still capture the dark-mode shots.
 
 **Zero console errors or warnings.** Read the output of `agent-browser console` and `agent-browser errors` after loading each page and after any interaction you test. Every error and warning (React key warnings, hydration mismatches, failed network requests, 404'd assets, deprecation notices, CSP violations) must be fixed at its source, not silenced. Fix it, reload, and re-check with `agent-browser console --clear` before the next run so old messages don't hide or fake a result. If a warning truly comes from third-party code you can't change, name it in your report as a known limitation.
 
@@ -103,14 +114,14 @@ agent-browser errors
 
 - [ ] Page loads without errors
 - [ ] `agent-browser console` shows no errors or warnings, and `agent-browser errors` is empty
-- [ ] No horizontal scrollbars or layout overflow
+- [ ] No horizontal scrollbars or layout overflow in any of the four views
+- [ ] Dark mode is legible (contrast, no unstyled white panels, images/icons visible) in desktop, tablet, and mobile
 
 **Verify when relevant to the change:**
 
 - [ ] Text is readable — correct fonts, sizes, contrast
 - [ ] Images load (no broken icons)
 - [ ] Links and navigation work
-- [ ] Tablet view (~768px) doesn't break (if touching layout)
 - [ ] Interactive elements have hover/focus states (if adding them)
 - [ ] Forms submit correctly (if applicable)
 
@@ -163,5 +174,5 @@ Keep iterating until it looks professional. If after 3 iterations the same issue
 When reporting results, always include:
 - What you built (tech stack, pages, features)
 - The live URL (if deployed)
-- Screenshots of the final result (desktop minimum)
+- The four screenshots: desktop landscape light, desktop landscape dark, tablet dark, mobile dark
 - Any known limitations or follow-up needed
