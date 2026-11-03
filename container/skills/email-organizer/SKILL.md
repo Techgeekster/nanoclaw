@@ -230,6 +230,16 @@ driver's-license renewal notice lands in Accounts *and* a copy in Needs
 Action). Needs Action is additive, never a substitute for the category
 rule.
 
+**Only Inbox mail is ever considered for Needs Action.** The check
+applies to a message at the moment you file it out of the Inbox on this
+run — nothing else. Never search, list, or revisit category folders
+(Finances, Purchases, Accounts, etc.) looking for Needs Action candidates,
+and never copy a message an earlier run already filed into Needs Action
+after the fact, even if it would qualify by the rules here. If it isn't in
+the Inbox right now, it's settled. On a folder-scoped run (rule 2), the
+scope isn't the Inbox, so skip the Needs Action check entirely — file
+those messages by category only.
+
 Needs Action is for a **problem that requires you to act to fix
 something** — not just anything time-sensitive or upcoming. A routine
 service reminder (e.g. a Rover or Sniffspot notice that a guest/booking is
@@ -253,8 +263,8 @@ to.
 For a message that doesn't fit any rule above and isn't urgent: don't
 invent a folder silently. Propose one to the user (an existing folder if a
 reasonable one exists, otherwise a new folder name) and wait for their call
-before filing it. If it's urgent-but-otherwise-uncategorized, still copy it
-to Needs Action + mark important immediately — urgency doesn't wait on a
+before filing it. If it's urgent-but-otherwise-uncategorized and in the
+Inbox, still copy it to Needs Action + mark important immediately — urgency doesn't wait on a
 suggestion.
 
 ## Workflow
@@ -286,8 +296,10 @@ suggestion.
    don't already exist.
 6. File the message: move it into its category folder, removing it from
    the scope folder (rule 4) — unless its category already *is* the scope
-   folder, in which case leave it. If it's urgent, also copy it into
-   Needs Action and mark it important. If it's going to Promotions, Socials, or
+   folder, in which case leave it. If it's urgent **and it came from the
+   Inbox on this run**, also copy it into Needs Action and mark it
+   important (never for already-filed mail or a folder-scoped run — see
+   Needs Action above). If it's going to Promotions, Socials, or
    Purchases, also mark it read — see the provider mechanics below for
    exactly how "copy", "important", and "mark as read" map onto the
    connected service.
