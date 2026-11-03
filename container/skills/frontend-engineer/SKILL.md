@@ -91,12 +91,18 @@ agent-browser screenshot desktop.png
 # Tablet (768px)
 agent-browser eval "window.resizeTo(768, 1024)"
 agent-browser screenshot tablet.png
+
+# Console output and uncaught page errors
+agent-browser console
+agent-browser errors
 ```
+
+**Zero console errors or warnings.** Read the output of `agent-browser console` and `agent-browser errors` after loading each page and after any interaction you test. Every error and warning (React key warnings, hydration mismatches, failed network requests, 404'd assets, deprecation notices, CSP violations) must be fixed at its source, not silenced. Fix it, reload, and re-check with `agent-browser console --clear` before the next run so old messages don't hide or fake a result. If a warning truly comes from third-party code you can't change, name it in your report as a known limitation.
 
 **Always verify:**
 
 - [ ] Page loads without errors
-- [ ] Console has no errors: `agent-browser eval "JSON.stringify(window.__errors || [])"`
+- [ ] `agent-browser console` shows no errors or warnings, and `agent-browser errors` is empty
 - [ ] No horizontal scrollbars or layout overflow
 
 **Verify when relevant to the change:**
@@ -123,7 +129,11 @@ After first deploy or major changes, verify the LIVE URL:
 ```bash
 agent-browser open <deployed-url>
 agent-browser screenshot production.png
+agent-browser console
+agent-browser errors
 ```
+
+The live site must also have zero console errors or warnings.
 
 If anything looks broken compared to local, fix it and redeploy.
 
