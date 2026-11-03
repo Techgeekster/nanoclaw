@@ -31,7 +31,7 @@ import { isUnguarded, type Unguarded } from './guard/index.js';
 import { mapConcurrent } from './concurrency.js';
 import { fanOutboundMessage } from './modules/cross-session-context/index.js';
 import { log } from './log.js';
-import { resolveTaskOriginThread } from './task-origin-thread.js';
+import { resolveTaskOrigin } from './task-origin-thread.js';
 import { normalizeOptions } from './channels/ask-question.js';
 import { clearOutbox, readOutboxFiles, withExistingMailboxSession } from './session-manager.js';
 import { pauseTypingRefreshAfterDelivery, setTypingAdapter } from './modules/typing/index.js';
@@ -427,6 +427,27 @@ async function deliverMessage(
     return;
   }
 
+  // A task session has no chat of its own: when the work started in a thread,
+  // every channel post from the task lands in that thread — never a DM, the
+  // channel root, or another chat, whichever destination the agent named.
+  if (msg.channelType && msg.platformId) {
+    const origin = await resolveTaskOrigin(session);
+    if (origin) {
+      if (
+        origin.channelType !== msg.channelType ||
+        origin.platformId !== msg.platformId ||
+        msg.threadId !== origin.threadId
+      ) {
+        log.info('Redirecting task post into its origin thread', {
+          id: msg.id,
+          from: { channelType: msg.channelType, platformId: msg.platformId, threadId: msg.threadId },
+          to: origin,
+        });
+      }
+      msg = { ...msg, ...origin };
+    }
+  }
+
   // Permission check: the source agent must be allowed to deliver to this
   // channel destination. Two ways it passes:
   //
@@ -535,12 +556,6 @@ async function deliverMessage(
       ? readOutboxFiles(session.agent_group_id, session.id, msg.id, content.files as string[])
       : undefined;
 
-  // A task session has no chat of its own: land its post in the thread of the
-  // session that created the task, not the channel root.
-  const deliverThreadId =
-    msg.threadId ??
-    (msg.channelType === 'agent' ? null : await resolveTaskOriginThread(session, msg.channelType, msg.platformId));
-
   // Agent-asked questions keep their own markup; host-built cards never come
   // through here, so only they get a channel's card-text escape.
   const deliveredContent =
@@ -548,7 +563,7 @@ async function deliverMessage(
   const platformMsgId = await deliveryAdapter.deliver(
     msg.channelType,
     msg.platformId,
-    deliverThreadId,
+    msg.threadId,
     msg.kind,
     deliveredContent,
     files,

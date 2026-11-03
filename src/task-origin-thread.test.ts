@@ -29,7 +29,7 @@ import { createSession, getSessionsByAgentGroup } from './db/sessions.js';
 import { dispatch } from './cli/dispatch.js';
 import type { CallerContext } from './cli/frame.js';
 import { initSessionFolder } from './session-manager.js';
-import { resolveTaskOriginThread } from './task-origin-thread.js';
+import { resolveTaskOrigin } from './task-origin-thread.js';
 import './cli/resources/tasks.js';
 
 const now = () => new Date().toISOString();
@@ -66,7 +66,7 @@ async function taskSessionFor(originSession: string) {
   return (await getSessionsByAgentGroup('ag-1')).find((s) => s.id === session_id)!;
 }
 
-describe('resolveTaskOriginThread', () => {
+describe('resolveTaskOrigin', () => {
   beforeEach(async () => {
     if (fs.existsSync(TEST_DIR)) fs.rmSync(TEST_DIR, { recursive: true });
     fs.mkdirSync(TEST_DIR, { recursive: true });
@@ -88,27 +88,30 @@ describe('resolveTaskOriginThread', () => {
     if (fs.existsSync(TEST_DIR)) fs.rmSync(TEST_DIR, { recursive: true });
   });
 
-  it('returns the thread of the session that created the task', async () => {
+  const ORIGIN = { channelType: CHANNEL, platformId: PLATFORM, threadId: THREAD };
+
+  it('returns the chat thread of the session that created the task', async () => {
     await chatSession('origin', 'mg-1', THREAD);
     const task = await taskSessionFor('origin');
-    expect(await resolveTaskOriginThread(task, CHANNEL, PLATFORM)).toBe(THREAD);
+    expect(await resolveTaskOrigin(task)).toEqual(ORIGIN);
   });
 
-  it('returns null when the post targets a different chat than the origin session', async () => {
+  it('follows a task created by another task back to the originating thread', async () => {
     await chatSession('origin', 'mg-1', THREAD);
-    const task = await taskSessionFor('origin');
-    expect(await resolveTaskOriginThread(task, CHANNEL, 'discord:g1:other')).toBeNull();
+    const parent = await taskSessionFor('origin');
+    const child = await taskSessionFor(parent.id);
+    expect(await resolveTaskOrigin(child)).toEqual(ORIGIN);
   });
 
   it('returns null when the origin session has no thread', async () => {
     await chatSession('origin', 'mg-1', null);
     const task = await taskSessionFor('origin');
-    expect(await resolveTaskOriginThread(task, CHANNEL, PLATFORM)).toBeNull();
+    expect(await resolveTaskOrigin(task)).toBeNull();
   });
 
   it('returns null for a non-task session', async () => {
     await chatSession('origin', 'mg-1', THREAD);
     const [origin] = (await getSessionsByAgentGroup('ag-1')).filter((s) => s.id === 'origin');
-    expect(await resolveTaskOriginThread(origin, CHANNEL, PLATFORM)).toBeNull();
+    expect(await resolveTaskOrigin(origin)).toBeNull();
   });
 });
